@@ -12,6 +12,12 @@ final class GameSceneController: NSObject, ObservableObject {
     @Published private(set) var raceLengthMeters: Int = 0
     @Published private(set) var totalCoins: Int = CoinStore.total
     @Published private(set) var runCoins: Int = 0
+    @Published private(set) var equippedPowerUp: PowerUpType? = PowerUpStore.equipped
+    @Published private(set) var powerUpLevels: [PowerUpType: Int] = [:]
+    /// HUD: seconds left on cooldown (0 = ready). −1 when nothing equipped.
+    @Published private(set) var powerUpCooldownRemaining: Float = -1
+    @Published private(set) var powerUpEffectActive: Bool = false
+    @Published private(set) var powerUpReady: Bool = false
 
     let scnView: SCNView
     private let scene = SCNScene()
@@ -51,6 +57,12 @@ final class GameSceneController: NSObject, ObservableObject {
     private var botCatchUpStrength: Float = 0.12
     private var racers: [BallController] { [player] + bots }
 
+    private let playerPowerUp = PowerUpRuntime()
+    private var botPowerUps: [PowerUpRuntime] = []
+    private var botPowerUpThinkTimers: [Float] = []
+    /// HUD taps set this; activation runs on the SceneKit update thread (scene-graph safe).
+    private var pendingPlayerPowerUpActivation = false
+
     private let botColors: [UIColor] = [
         UIColor(red: 0.20, green: 0.55, blue: 0.95, alpha: 1),
         UIColor(red: 0.20, green: 0.78, blue: 0.40, alpha: 1),
@@ -75,6 +87,8 @@ final class GameSceneController: NSObject, ObservableObject {
         ))
         configureView()
         buildWorld()
+        GameArt.warmCaches()
+        refreshPowerUpShopState()
         resetToMenu()
     }
 
@@ -98,6 +112,7 @@ final class GameSceneController: NSObject, ObservableObject {
         finishLeadMeters = 0
         runCoins = 0
         totalCoins = CoinStore.total
+        pendingPlayerPowerUpActivation = false
         spawnRacersForRun()
         startZ = player.position.z
         let length = Self.distanceForDuration(
@@ -117,7 +132,7 @@ final class GameSceneController: NSObject, ObservableObject {
     }
 
     func returnToMenu() {
-        guard state == .dead || state == .won || state == .skinShop || state == .levelSelect else { return }
+        guard state == .dead || state == .won || state == .skinShop || state == .powerUpShop || state == .levelSelect else { return }
         resetToMenu()
     }
 
@@ -129,6 +144,120 @@ final class GameSceneController: NSObject, ObservableObject {
     func openSkinShop() {
         guard state == .menu else { return }
         state = .skinShop
+    }
+
+    func openPowerUpShop() {
+        guard state == .menu else { return }
+        refreshPowerUpShopState()
+        state = .powerUpShop
+    }
+
+    func purchasePowerUp(_ type: PowerUpType) {
+        guard state == .powerUpShop else { return }
+        guard PowerUpStore.purchase(type) else { return }
+        refreshPowerUpShopState()
+    }
+
+    func upgradePowerUp(_ type: PowerUpType) {
+        guard state == .powerUpShop else { return }
+        guard PowerUpStore.upgrade(type) else { return }
+        refreshPowerUpShopState()
+    }
+
+    func equipPowerUp(_ type: PowerUpType) {
+        guard state == .powerUpShop else { return }
+        PowerUpStore.equip(type)
+        refreshPowerUpShopState()
+    }
+
+    func activateEquippedPowerUp() {
+        guard state == .playing, !awaitingPodium else { return }
+        guard playerPowerUp.isReady else { return }
+        // Defer SceneKit node work to `updatePlaying` so we never mutate the
+        // scene from the SwiftUI/main thread while the renderer is running.
+        pendingPlayerPowerUpActivation = true
+    }
+
+    private func processPendingPlayerPowerUpActivation() {
+        guard pendingPlayerPowerUpActivation else { return }
+        pendingPlayerPowerUpActivation = false
+        guard state == .playing, !awaitingPodium else { return }
+        guard let activation = playerPowerUp.tryActivate() else { return }
+        applyActivationSideEffects(activation, caster: player)
+        playActivationVFX(activation, on: player)
+        publishPlayerPowerUpHUD()
+    }
+
+    private func refreshPowerUpShopState() {
+        totalCoins = CoinStore.total
+        equippedPowerUp = PowerUpStore.equipped
+        var levels: [PowerUpType: Int] = [:]
+        for type in PowerUpType.allCases {
+            levels[type] = PowerUpStore.level(of: type)
+        }
+        powerUpLevels = levels
+    }
+
+    private func publishPlayerPowerUpHUD() {
+        let nextCD: Float
+        let nextActive: Bool
+        let nextReady: Bool
+        if playerPowerUp.hasPowerUp {
+            nextCD = playerPowerUp.cooldownRemaining
+            nextActive = playerPowerUp.isEffectActive
+            nextReady = playerPowerUp.isReady
+        } else {
+            nextCD = -1
+            nextActive = false
+            nextReady = false
+        }
+
+        // Avoid spamming SwiftUI with sub-frame float noise.
+        guard abs(powerUpCooldownRemaining - nextCD) > 0.05
+            || powerUpEffectActive != nextActive
+            || powerUpReady != nextReady else { return }
+
+        let apply = { [weak self] in
+            guard let self else { return }
+            self.powerUpCooldownRemaining = nextCD
+            self.powerUpEffectActive = nextActive
+            self.powerUpReady = nextReady
+        }
+        // @Published must be updated on the main thread (renderer runs off-main).
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    private func applyActivationSideEffects(
+        _ activation: PowerUpActivation,
+        caster: BallController
+    ) {
+        guard activation.type == .slowPulse else { return }
+        let radius = activation.stats.slowRadius
+        let multiplier = activation.stats.slowMultiplier
+        let duration = activation.stats.duration
+        let radiusSq = radius * radius
+        let cx = caster.position.x
+        let cz = caster.position.z
+
+        for other in racers where other !== caster && other.isAlive {
+            let dx = other.position.x - cx
+            let dz = other.position.z - cz
+            guard dx * dx + dz * dz <= radiusSq else { continue }
+            runtime(for: other)?.applyIncomingSlow(multiplier: multiplier, duration: duration)
+            // Flash the victim so mid-air / off-camera pulses are still readable.
+            other.playSlowPulseHitFlash()
+        }
+    }
+
+    private func playActivationVFX(_ activation: PowerUpActivation, on caster: BallController) {
+        caster.playPowerUpActivation(
+            activation.type,
+            pulseRadius: activation.stats.slowRadius
+        )
     }
 
     /// Remember the biome; the track loads when play starts.
@@ -172,7 +301,8 @@ final class GameSceneController: NSObject, ObservableObject {
     private func configureView() {
         scnView.scene = scene
         scnView.backgroundColor = UIColor(red: 0.55, green: 0.78, blue: 0.95, alpha: 1)
-        scnView.antialiasingMode = .multisampling4X
+        // 2x AA is much cheaper than 4x on dense forest/tropical chunks.
+        scnView.antialiasingMode = .multisampling2X
         scnView.isPlaying = true
         scnView.allowsCameraControl = false
         scnView.autoenablesDefaultLighting = false
@@ -230,6 +360,7 @@ final class GameSceneController: NSObject, ObservableObject {
             material: GameArt.ballMaterial(for: selectedSkin)
         )
         scene.rootNode.addChildNode(player.node)
+        player.attachPowerUpVFX(worldRoot: scene.rootNode)
 
         for i in 0..<4 {
             let bot = BallController(
@@ -239,7 +370,10 @@ final class GameSceneController: NSObject, ObservableObject {
             )
             bot.hide()
             bots.append(bot)
+            botPowerUps.append(PowerUpRuntime())
+            botPowerUpThinkTimers.append(0)
             scene.rootNode.addChildNode(bot.node)
+            bot.attachPowerUpVFX(worldRoot: scene.rootNode)
         }
         configureBotsForCurrentDifficulty()
 
@@ -282,11 +416,25 @@ final class GameSceneController: NSObject, ObservableObject {
         player.applySkin(selectedSkin)
         player.beginPlaying(atX: startXs[2], startZ: lineZ)
 
+        if let equipped = PowerUpStore.equipped, PowerUpStore.isOwned(equipped) {
+            playerPowerUp.configure(type: equipped, level: PowerUpStore.level(of: equipped))
+        } else {
+            playerPowerUp.configure(type: nil, level: 0)
+        }
+        publishPlayerPowerUpHUD()
+
         for i in 0..<bots.count {
             let x = startXs[i < 2 ? i : i + 1]
             bots[i].applyMaterial(GameArt.botMaterial(color: botColors[i]))
             bots[i].beginPlaying(atX: x, startZ: lineZ)
             botBrains[i].reset(startX: x, preferredX: botPreferredXs[i])
+
+            let botType = PowerUpType.botAssignable.randomElement() ?? .speedBoost
+            let skill = botBrains[i].skill
+            let botLevel = max(1, min(PowerUpStats.maxLevel, 1 + Int(skill * 4)))
+            botPowerUps[i].configure(type: botType, level: botLevel)
+            // Stagger first think so they don't all fire together.
+            botPowerUpThinkTimers[i] = Float.random(in: 1.5...4.0)
         }
     }
 
@@ -347,8 +495,13 @@ final class GameSceneController: NSObject, ObservableObject {
         cameraLockedAtFinish = false
         awaitingPodium = false
         podiumTimer = 0
+        pendingPlayerPowerUpActivation = false
         state = .menu
         lastUpdateTime = 0
+        playerPowerUp.reset()
+        botPowerUps.forEach { $0.reset() }
+        publishPlayerPowerUpHUD()
+        refreshPowerUpShopState()
     }
 
     private func eliminate(_ racer: BallController) {
@@ -425,7 +578,15 @@ final class GameSceneController: NSObject, ObservableObject {
             )
             place += 1
         }
-        standings = rows
+        // Skip @Published churn when order hasn't changed (was rebuilding SwiftUI every frame).
+        guard rows != standings else { return }
+        if Thread.isMainThread {
+            standings = rows
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.standings = rows
+            }
+        }
     }
 
     private func checkFinishLine() {
@@ -443,26 +604,111 @@ final class GameSceneController: NSObject, ObservableObject {
         }
     }
 
+    private func runtime(for racer: BallController) -> PowerUpRuntime? {
+        if racer.isPlayer { return playerPowerUp }
+        if let index = bots.firstIndex(where: { $0 === racer }) {
+            return botPowerUps[index]
+        }
+        return nil
+    }
+
+    private func maybeActivateBotPowerUps(deltaTime: Float) {
+        guard !awaitingPodium else { return }
+        for i in 0..<bots.count {
+            let bot = bots[i]
+            guard bot.isAlive, !bot.hasFinished else { continue }
+            let runtime = botPowerUps[i]
+            guard runtime.hasPowerUp else { continue }
+
+            botPowerUpThinkTimers[i] -= deltaTime
+            guard botPowerUpThinkTimers[i] <= 0 else { continue }
+            botPowerUpThinkTimers[i] = Float.random(in: 0.35...0.85)
+
+            guard runtime.isReady else { continue }
+            guard shouldBotActivate(botIndex: i, runtime: runtime) else { continue }
+            guard let activation = runtime.tryActivate() else { continue }
+            applyActivationSideEffects(activation, caster: bot)
+            playActivationVFX(activation, on: bot)
+        }
+    }
+
+    private func shouldBotActivate(botIndex: Int, runtime: PowerUpRuntime) -> Bool {
+        guard let type = runtime.type else { return false }
+        let bot = bots[botIndex]
+        let skill = botBrains[botIndex].skill
+        // Weaker bots fire less often even when the situation fits.
+        let chanceGate = Float.random(in: 0...1)
+        guard chanceGate < (0.35 + skill * 0.55) else { return false }
+
+        switch type {
+        case .speedBoost:
+            let behind = player.position.z - bot.position.z
+            return behind > 3 || Float.random(in: 0...1) < 0.12
+        case .ghost:
+            let blocked = track.obstacles.intersectsBall(
+                x: bot.position.x,
+                y: bot.position.y,
+                z: bot.position.z + 8,
+                ballRadius: bot.radius + 0.15
+            ) || track.obstacles.intersectsBall(
+                x: bot.position.x,
+                y: bot.position.y,
+                z: bot.position.z + 14,
+                ballRadius: bot.radius + 0.15
+            )
+            return blocked || Float.random(in: 0...1) < 0.08
+        case .shield:
+            let nearSolid = track.obstacles.intersectsBall(
+                x: bot.position.x,
+                y: bot.position.y,
+                z: bot.position.z + 5,
+                ballRadius: bot.radius + 0.4
+            )
+            return nearSolid || Float.random(in: 0...1) < 0.1
+        case .slowPulse:
+            let dx = player.position.x - bot.position.x
+            let dz = player.position.z - bot.position.z
+            let distSq = dx * dx + dz * dz
+            let radius = runtime.stats?.slowRadius ?? 10
+            return distSq <= (radius * radius) && player.position.z >= bot.position.z - 2
+        case .coinMagnet:
+            return false
+        }
+    }
+
     private func updatePlaying(deltaTime: Float) {
         runTime += deltaTime
         let speed = currentForwardSpeed()
         let halfWidth = TrackGenerator.trackWidth * 0.5
 
+        processPendingPlayerPowerUpActivation()
+
+        playerPowerUp.tick(deltaTime, isAirborne: player.isAirborne)
+        for (index, runtime) in botPowerUps.enumerated() {
+            let airborne = index < bots.count ? bots[index].isAirborne : false
+            runtime.tick(deltaTime, isAirborne: airborne)
+        }
+        maybeActivateBotPowerUps(deltaTime: deltaTime)
+        publishPlayerPowerUpHUD()
+
         // Everyone still alive keeps rolling, including racers who already crossed.
         for racer in racers where racer.isAlive {
             let lateral: Float
             var personalSpeed = speed
+            let power = runtime(for: racer)
             if racer.isPlayer {
                 // After finishing, coast straight so the finish cam stays readable.
                 lateral = awaitingPodium ? 0 : input.lateral
             } else if let index = bots.firstIndex(where: { $0 === racer }) {
+                let botGhost = power?.isGhost == true
                 lateral = botBrains[index].desiredLateral(
                     positionX: racer.position.x,
                     positionZ: racer.position.z,
                     deltaTime: deltaTime,
                     trackHalfWidth: halfWidth,
                     ballRadius: racer.radius,
-                    obstacles: track.obstacles
+                    obstacles: track.obstacles,
+                    ignoreObstacles: botGhost
                 )
                 personalSpeed *= botSpeedScales[index]
                 let referenceZ = player.hasFinished ? finishZ : player.position.z
@@ -474,30 +720,43 @@ final class GameSceneController: NSObject, ObservableObject {
                 lateral = 0
             }
 
-            let speedScale = track.slowZones.speedScale(
+            let zoneScale = track.slowZones.speedScale(
                 atX: racer.position.x,
                 z: racer.position.z
             )
+            let powerScale = power?.movementSpeedMultiplier(isAirborne: racer.isAirborne) ?? 1
             racer.applyMovement(
                 lateral: lateral,
                 forwardSpeed: personalSpeed,
                 deltaTime: deltaTime,
                 trackHalfWidth: halfWidth,
                 heightField: track.heightField,
-                speedScale: speedScale
+                speedScale: zoneScale * powerScale
             )
-            racer.resolveSolidObstacles(
-                obstacles: track.obstacles,
-                polarBears: track.polarBears,
-                moose: track.moose,
-                brownBears: track.brownBears,
-                bunnies: track.bunnies,
-                alligators: track.alligators,
-                frogs: track.frogs,
-                lavaLizards: track.lavaLizards,
-                crabs: track.crabs,
-                seaTurtles: track.seaTurtles,
-                trackHalfWidth: halfWidth
+
+            let isGhost = power?.isGhost == true
+            if !isGhost {
+                racer.resolveSolidObstacles(
+                    obstacles: track.obstacles,
+                    polarBears: track.polarBears,
+                    moose: track.moose,
+                    brownBears: track.brownBears,
+                    bunnies: track.bunnies,
+                    alligators: track.alligators,
+                    frogs: track.frogs,
+                    lavaLizards: track.lavaLizards,
+                    crabs: track.crabs,
+                    seaTurtles: track.seaTurtles,
+                    trackHalfWidth: halfWidth,
+                    shieldAbsorb: { power?.absorbHit() ?? false }
+                )
+            }
+            racer.updatePowerUpVFX(
+                deltaTime: deltaTime,
+                isSpeedBoost: power?.isSpeedBoostActive == true,
+                isGhost: isGhost,
+                hasShield: power?.hasShieldArmed == true,
+                isMagnet: power?.isMagnetActive == true
             )
         }
 
@@ -505,11 +764,13 @@ final class GameSceneController: NSObject, ObservableObject {
         track.updateWildlife(deltaTime: deltaTime, time: runTime)
 
         if player.isAlive {
+            let magnetReach = playerPowerUp.magnetReach()
             let gained = track.coins.collect(
                 atX: player.position.x,
                 y: player.position.y,
                 z: player.position.z,
-                ballRadius: player.radius
+                ballRadius: player.radius,
+                extraReach: magnetReach
             )
             if gained > 0 {
                 runCoins += gained
@@ -643,7 +904,9 @@ extension GameSceneController: SCNSceneRendererDelegate {
         if lastUpdateTime == 0 {
             dt = 1.0 / 60.0
         } else {
-            dt = Float(min(time - lastUpdateTime, 1.0 / 20.0))
+            // Soft cap: allow catching up a bit after hitch frames so the ball
+            // doesn't crawl when FPS briefly dips below 20.
+            dt = Float(min(time - lastUpdateTime, 1.0 / 12.0))
         }
         lastUpdateTime = time
 

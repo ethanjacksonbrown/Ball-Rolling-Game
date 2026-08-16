@@ -4,6 +4,7 @@ enum GameState: Equatable {
     case menu
     case levelSelect
     case skinShop
+    case powerUpShop
     case playing
     case dead
     case won

@@ -14,9 +14,10 @@ final class BallController {
     private var verticalVelocity: Float = 0
     private var bounceVX: Float = 0
     private var bounceVZ: Float = 0
-    private var isAirborne = false
+    private(set) var isAirborne = false
     private var previousGroundY: Float = 0
     private var geyserCooldown: Float = 0
+    private let powerUpVFX = PowerUpVFX()
 
     var position: SCNVector3 {
         node.position
@@ -35,13 +36,19 @@ final class BallController {
         node.position = SCNVector3(0, Self.surfaceY + radius, 0)
     }
 
+    func attachPowerUpVFX(worldRoot: SCNNode) {
+        powerUpVFX.attach(to: node, worldRoot: worldRoot, radius: radius)
+    }
+
     func applySkin(_ skin: BallSkin) {
         guard isPlayer else { return }
         node.geometry?.firstMaterial = GameArt.ballMaterial(for: skin)
+        node.geometry?.firstMaterial?.emission.contents = UIColor.black
     }
 
     func applyMaterial(_ material: SCNMaterial) {
         node.geometry?.firstMaterial = material
+        node.geometry?.firstMaterial?.emission.contents = UIColor.black
     }
 
     func prepareForReady(atX x: Float = 0) {
@@ -59,6 +66,7 @@ final class BallController {
         node.opacity = 1
         node.position = SCNVector3(x, Self.surfaceY + radius, startZ)
         resetMotionState()
+        powerUpVFX.reset()
         isAlive = true
         hasFinished = false
     }
@@ -74,6 +82,7 @@ final class BallController {
         guard isAlive else { return }
         isAlive = false
         freeze()
+        powerUpVFX.reset()
         node.opacity = 0.35
     }
 
@@ -88,6 +97,7 @@ final class BallController {
     }
 
     func hide() {
+        powerUpVFX.reset()
         node.isHidden = true
         isAlive = false
         hasFinished = false
@@ -103,8 +113,23 @@ final class BallController {
     }
 
     /// Solid bounce off trees/rocks/bears — push out and rebound so you must go around.
-    func resolveSolidContact(_ hit: ObstacleContact, trackHalfWidth: Float) {
-        guard isAlive else { return }
+    /// Returns false if a shield absorbed the hit (no bounce applied).
+    @discardableResult
+    func resolveSolidContact(
+        _ hit: ObstacleContact,
+        trackHalfWidth: Float,
+        shieldAbsorb: (() -> Bool)? = nil
+    ) -> Bool {
+        guard isAlive else { return true }
+
+        if let shieldAbsorb, shieldAbsorb() {
+            // Nudge out of overlap without bounce impulse.
+            node.position.x += hit.normalX * hit.overlap
+            node.position.z += hit.normalZ * hit.overlap
+            let maxX = trackHalfWidth - radius - 0.08
+            node.position.x = max(-maxX, min(maxX, node.position.x))
+            return false
+        }
 
         node.position.x += hit.normalX * hit.overlap
         node.position.z += hit.normalZ * hit.overlap
@@ -115,6 +140,7 @@ final class BallController {
 
         let maxX = trackHalfWidth - radius - 0.08
         node.position.x = max(-maxX, min(maxX, node.position.x))
+        return true
     }
 
     /// Resolve overlaps against solid props (trees, rocks, polar bears).
@@ -129,7 +155,8 @@ final class BallController {
         lavaLizards: LavaLizardIndex,
         crabs: CrabIndex,
         seaTurtles: SeaTurtleIndex,
-        trackHalfWidth: Float
+        trackHalfWidth: Float,
+        shieldAbsorb: (() -> Bool)? = nil
     ) {
         guard isAlive else { return }
 
@@ -147,8 +174,34 @@ final class BallController {
                 ?? crabs.deepestContact(x: pos.x, y: pos.y, z: pos.z, ballRadius: radius)
                 ?? seaTurtles.deepestContact(x: pos.x, y: pos.y, z: pos.z, ballRadius: radius)
             guard let hit else { break }
-            resolveSolidContact(hit, trackHalfWidth: trackHalfWidth)
+            let bounced = resolveSolidContact(hit, trackHalfWidth: trackHalfWidth, shieldAbsorb: shieldAbsorb)
+            if !bounced { break }
         }
+    }
+
+    func playPowerUpActivation(_ type: PowerUpType, pulseRadius: Float = 10) {
+        powerUpVFX.playActivation(type, pulseRadius: pulseRadius)
+    }
+
+    func playSlowPulseHitFlash() {
+        powerUpVFX.playSlowPulseHitFlash()
+    }
+
+    func updatePowerUpVFX(
+        deltaTime: Float,
+        isSpeedBoost: Bool,
+        isGhost: Bool,
+        hasShield: Bool,
+        isMagnet: Bool
+    ) {
+        guard isAlive else { return }
+        powerUpVFX.update(
+            deltaTime: deltaTime,
+            isSpeedBoost: isSpeedBoost,
+            isGhost: isGhost,
+            hasShield: hasShield,
+            isMagnet: isMagnet
+        )
     }
 
     func applyMovement(

@@ -4,6 +4,28 @@ import UIKit
 /// Shared procedural textures and materials for a more coherent look.
 enum GameArt {
     private static var textureCache: [String: UIImage] = [:]
+    private static var materialCache: [String: SCNMaterial] = [:]
+
+    /// Warm common textures/materials so the first race doesn't hitch on UIGraphics work.
+    static func warmCaches() {
+        _ = skyGradient()
+        _ = soccerBallTexture()
+        _ = basketballTexture()
+        _ = tennisBallTexture()
+        _ = beachBallTexture()
+        _ = marbleBallTexture()
+        for biome in Biome.allCases {
+            _ = groundTexture(for: biome)
+        }
+        _ = barkMaterial(scorched: false)
+        _ = barkMaterial(scorched: true)
+        _ = foliageMaterial(base: UIColor(red: 0.18, green: 0.48, blue: 0.20, alpha: 1))
+        _ = foliageMaterial(base: UIColor(red: 0.12, green: 0.40, blue: 0.16, alpha: 1))
+        _ = foliageMaterial(base: UIColor(red: 0.24, green: 0.55, blue: 0.24, alpha: 1))
+        _ = foliageMaterial(base: UIColor(red: 0.22, green: 0.48, blue: 0.18, alpha: 1))
+        _ = rockMaterial()
+        _ = rockMaterial(tint: UIColor(white: 0.12, alpha: 1))
+    }
 
     static func skyGradient() -> UIImage {
         cached("sky") {
@@ -134,6 +156,8 @@ enum GameArt {
     }
 
     static func barkMaterial(scorched: Bool = false) -> SCNMaterial {
+        let key = scorched ? "bark-scorched" : "bark"
+        if let hit = materialCache[key] { return hit }
         let material = SCNMaterial()
         material.diffuse.contents = scorched
             ? barkTexture(
@@ -148,23 +172,35 @@ enum GameArt {
         material.diffuse.wrapT = .repeat
         material.lightingModel = .blinn
         material.locksAmbientWithDiffuse = true
+        materialCache[key] = material
         return material
     }
 
     static func foliageMaterial(base: UIColor) -> SCNMaterial {
+        // Quantize color so nearby greens share one material.
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        base.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let key = String(format: "foliage-%.2f-%.2f-%.2f", r, g, b)
+        if let hit = materialCache[key] { return hit }
         let material = SCNMaterial()
         material.diffuse.contents = foliageTexture(base: base)
         material.lightingModel = .lambert
         material.locksAmbientWithDiffuse = true
+        materialCache[key] = material
         return material
     }
 
     static func rockMaterial(tint: UIColor = UIColor(white: 0.48, alpha: 1)) -> SCNMaterial {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        tint.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let key = String(format: "rock-%.2f-%.2f-%.2f", r, g, b)
+        if let hit = materialCache[key] { return hit }
         let material = SCNMaterial()
         material.diffuse.contents = rockTexture(base: tint)
         material.lightingModel = .blinn
         material.locksAmbientWithDiffuse = true
         material.shininess = 0.08
+        materialCache[key] = material
         return material
     }
 
@@ -191,16 +227,28 @@ enum GameArt {
     static func ballMaterial(for skin: BallSkin) -> SCNMaterial {
         switch skin {
         case .classic:
-            return glossyBall(color: UIColor(red: 0.92, green: 0.28, blue: 0.22, alpha: 1))
+            return glossyBall(color: skin.previewColor)
         case .soccer:
-            let material = SCNMaterial()
-            material.diffuse.contents = soccerBallTexture()
-            material.specular.contents = UIColor.white
-            material.shininess = 0.7
-            material.lightingModel = .physicallyBased
-            material.metalness.contents = 0.02
-            material.roughness.contents = 0.4
+            return texturedBall(soccerBallTexture())
+        case .basketball:
+            return texturedBall(basketballTexture())
+        case .tennis:
+            return texturedBall(tennisBallTexture())
+        case .beachBall:
+            return texturedBall(beachBallTexture())
+        case .gold:
+            let material = glossyBall(color: skin.previewColor)
+            material.metalness.contents = 0.85
+            material.roughness.contents = 0.18
+            material.emission.contents = UIColor(red: 0.95, green: 0.78, blue: 0.22, alpha: 0.12)
             return material
+        case .neon:
+            let material = glossyBall(color: skin.previewColor)
+            material.emission.contents = UIColor(red: 0.15, green: 0.95, blue: 0.85, alpha: 0.55)
+            material.roughness.contents = 0.22
+            return material
+        case .marble:
+            return texturedBall(marbleBallTexture())
         }
     }
 
@@ -216,6 +264,17 @@ enum GameArt {
         material.lightingModel = .physicallyBased
         material.metalness.contents = 0.05
         material.roughness.contents = 0.35
+        return material
+    }
+
+    private static func texturedBall(_ image: UIImage) -> SCNMaterial {
+        let material = SCNMaterial()
+        material.diffuse.contents = image
+        material.specular.contents = UIColor.white
+        material.shininess = 0.7
+        material.lightingModel = .physicallyBased
+        material.metalness.contents = 0.02
+        material.roughness.contents = 0.4
         return material
     }
 
@@ -282,6 +341,127 @@ enum GameArt {
                 fillPentagon(center: center, radius: radius, rotation: rotation)
             }
 
+            let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+            UIGraphicsEndImageContext()
+            return image
+        }
+    }
+
+    static func basketballTexture() -> UIImage {
+        cached("basketball") {
+            let size = CGFloat(256)
+            UIGraphicsBeginImageContextWithOptions(CGSize(width: size, height: size), true, 1)
+            guard let ctx = UIGraphicsGetCurrentContext() else {
+                UIGraphicsEndImageContext()
+                return UIImage()
+            }
+            UIColor(red: 0.92, green: 0.45, blue: 0.12, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            UIColor(white: 0.08, alpha: 1).setStroke()
+            ctx.setLineWidth(6)
+            ctx.setLineCap(.round)
+            ctx.move(to: CGPoint(x: size / 2, y: 8))
+            ctx.addLine(to: CGPoint(x: size / 2, y: size - 8))
+            ctx.move(to: CGPoint(x: 8, y: size / 2))
+            ctx.addLine(to: CGPoint(x: size - 8, y: size / 2))
+            let leftOval = CGRect(x: -size * 0.35, y: 16, width: size * 0.9, height: size - 32)
+            let rightOval = CGRect(x: size * 0.45, y: 16, width: size * 0.9, height: size - 32)
+            ctx.addEllipse(in: leftOval)
+            ctx.addEllipse(in: rightOval)
+            ctx.strokePath()
+            let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+            UIGraphicsEndImageContext()
+            return image
+        }
+    }
+
+    static func tennisBallTexture() -> UIImage {
+        cached("tennis-ball") {
+            let size = CGFloat(256)
+            UIGraphicsBeginImageContextWithOptions(CGSize(width: size, height: size), true, 1)
+            guard let ctx = UIGraphicsGetCurrentContext() else {
+                UIGraphicsEndImageContext()
+                return UIImage()
+            }
+            UIColor(red: 0.82, green: 0.92, blue: 0.18, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            UIColor.white.setStroke()
+            ctx.setLineWidth(10)
+            ctx.setLineCap(.round)
+            ctx.move(to: CGPoint(x: 20, y: size * 0.28))
+            ctx.addCurve(
+                to: CGPoint(x: size - 20, y: size * 0.72),
+                control1: CGPoint(x: size * 0.35, y: size * 0.05),
+                control2: CGPoint(x: size * 0.65, y: size * 0.95)
+            )
+            ctx.move(to: CGPoint(x: 20, y: size * 0.72))
+            ctx.addCurve(
+                to: CGPoint(x: size - 20, y: size * 0.28),
+                control1: CGPoint(x: size * 0.35, y: size * 0.95),
+                control2: CGPoint(x: size * 0.65, y: size * 0.05)
+            )
+            ctx.strokePath()
+            let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+            UIGraphicsEndImageContext()
+            return image
+        }
+    }
+
+    static func beachBallTexture() -> UIImage {
+        cached("beach-ball") {
+            let size = CGFloat(256)
+            UIGraphicsBeginImageContextWithOptions(CGSize(width: size, height: size), true, 1)
+            guard let ctx = UIGraphicsGetCurrentContext() else {
+                UIGraphicsEndImageContext()
+                return UIImage()
+            }
+            let colors: [UIColor] = [
+                UIColor(red: 0.95, green: 0.28, blue: 0.32, alpha: 1),
+                UIColor(red: 1.0, green: 0.92, blue: 0.25, alpha: 1),
+                UIColor(red: 0.20, green: 0.62, blue: 0.95, alpha: 1),
+                UIColor.white,
+                UIColor(red: 0.25, green: 0.78, blue: 0.42, alpha: 1),
+                UIColor(red: 0.95, green: 0.45, blue: 0.15, alpha: 1)
+            ]
+            let stripe = size / CGFloat(colors.count)
+            for (i, color) in colors.enumerated() {
+                color.setFill()
+                ctx.fill(CGRect(x: CGFloat(i) * stripe, y: 0, width: stripe + 1, height: size))
+            }
+            let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+            UIGraphicsEndImageContext()
+            return image
+        }
+    }
+
+    static func marbleBallTexture() -> UIImage {
+        cached("marble-ball") {
+            let size = CGFloat(256)
+            UIGraphicsBeginImageContextWithOptions(CGSize(width: size, height: size), true, 1)
+            guard let ctx = UIGraphicsGetCurrentContext() else {
+                UIGraphicsEndImageContext()
+                return UIImage()
+            }
+            UIColor(red: 0.90, green: 0.92, blue: 0.95, alpha: 1).setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            let veins: [(UIColor, CGFloat)] = [
+                (UIColor(red: 0.55, green: 0.60, blue: 0.70, alpha: 0.55), 4),
+                (UIColor(red: 0.35, green: 0.40, blue: 0.50, alpha: 0.4), 3),
+                (UIColor(red: 0.70, green: 0.55, blue: 0.55, alpha: 0.35), 2.5)
+            ]
+            for (i, vein) in veins.enumerated() {
+                vein.0.setStroke()
+                ctx.setLineWidth(vein.1)
+                ctx.setLineCap(.round)
+                let y0 = CGFloat(40 + i * 55)
+                ctx.move(to: CGPoint(x: 0, y: y0))
+                ctx.addCurve(
+                    to: CGPoint(x: size, y: y0 + 30),
+                    control1: CGPoint(x: size * 0.3, y: y0 - 40),
+                    control2: CGPoint(x: size * 0.7, y: y0 + 55)
+                )
+                ctx.strokePath()
+            }
             let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
             UIGraphicsEndImageContext()
             return image

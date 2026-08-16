@@ -14,6 +14,15 @@ enum CoinStore {
         guard amount > 0 else { return }
         total += amount
     }
+
+    /// Spend coins if the wallet has enough. Returns false when insufficient.
+    @discardableResult
+    static func spend(_ amount: Int) -> Bool {
+        guard amount > 0 else { return true }
+        guard total >= amount else { return false }
+        total -= amount
+        return true
+    }
 }
 
 struct CoinPickup {
@@ -65,17 +74,19 @@ final class CoinIndex {
     }
 
     /// Collect overlapping coins. Returns how many were picked up.
+    /// `extraReach` extends horizontal pickup distance (Coin Magnet).
     @discardableResult
-    func collect(atX x: Float, y: Float, z: Float, ballRadius: Float) -> Int {
+    func collect(atX x: Float, y: Float, z: Float, ballRadius: Float, extraReach: Float = 0) -> Int {
         var collected = 0
         coins.removeAll { coin in
             let dx = x - coin.x
             let dz = z - coin.z
-            let reach = coin.radius + ballRadius
+            let reach = coin.radius + ballRadius + max(0, extraReach)
             guard dx * dx + dz * dz <= reach * reach else { return false }
             let ballBottom = y - ballRadius
             let ballTop = y + ballRadius
-            guard ballBottom < coin.y + 0.7 && ballTop > coin.y - 0.4 else { return false }
+            let verticalSlack: Float = extraReach > 0.5 ? 2.5 : 0.4
+            guard ballBottom < coin.y + 0.7 && ballTop > coin.y - verticalSlack else { return false }
             coin.node.removeFromParentNode()
             collected += 1
             return true

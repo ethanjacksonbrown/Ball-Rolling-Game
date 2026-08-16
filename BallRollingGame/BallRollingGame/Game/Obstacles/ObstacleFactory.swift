@@ -22,12 +22,8 @@ enum ObstacleFactory {
         root.position = SCNVector3(position.x, position.y - 0.12, position.z)
         root.castsShadow = false
 
-        let tint = color ?? UIColor(
-            red: CGFloat.random(in: 0.42...0.55),
-            green: CGFloat.random(in: 0.40...0.52),
-            blue: CGFloat.random(in: 0.38...0.48),
-            alpha: 1
-        )
+        // Shared palette so rock materials batch instead of unique random colors.
+        let tint = color ?? UIColor(red: 0.48, green: 0.46, blue: 0.43, alpha: 1)
         let material = GameArt.rockMaterial(tint: tint)
 
         // Slightly uneven proportions so rocks don't look like identical boxes.
@@ -55,41 +51,23 @@ enum ObstacleFactory {
         )
         root.addChildNode(rockNode)
 
-        // Extra chunks / rounded nubs for an irregular silhouette.
-        let nubCount = Int.random(in: 1...3)
-        for _ in 0..<nubCount {
-            let s = size * CGFloat.random(in: 0.28...0.62)
-            let nubNode: SCNNode
-            if Bool.random() {
-                let nub = SCNBox(
-                    width: s * CGFloat.random(in: 0.8...1.2),
-                    height: s * CGFloat.random(in: 0.55...0.9),
-                    length: s * CGFloat.random(in: 0.8...1.2),
-                    chamferRadius: s * 0.28
-                )
-                nub.firstMaterial = material
-                nubNode = SCNNode(geometry: nub)
-            } else {
-                let nub = SCNSphere(radius: s * 0.45)
-                nub.segmentCount = 8
-                nub.firstMaterial = material
-                nubNode = SCNNode(geometry: nub)
-                nubNode.scale = SCNVector3(
-                    Float.random(in: 0.9...1.3),
-                    Float.random(in: 0.55...0.85),
-                    Float.random(in: 0.9...1.3)
-                )
-            }
+        // One extra nub max — keeps silhouette without multiplying draw calls.
+        if Bool.random() {
+            let s = size * CGFloat.random(in: 0.28...0.55)
+            let nub = SCNBox(
+                width: s * CGFloat.random(in: 0.8...1.2),
+                height: s * CGFloat.random(in: 0.55...0.9),
+                length: s * CGFloat.random(in: 0.8...1.2),
+                chamferRadius: s * 0.28
+            )
+            nub.firstMaterial = material
+            let nubNode = SCNNode(geometry: nub)
             nubNode.position = SCNVector3(
-                Float.random(in: -0.35...0.35) * Float(size),
-                Float(s) * Float.random(in: 0.25...0.55),
-                Float.random(in: -0.35...0.35) * Float(size)
+                Float.random(in: -0.3...0.3) * Float(size),
+                Float(s) * Float.random(in: 0.25...0.5),
+                Float.random(in: -0.3...0.3) * Float(size)
             )
-            nubNode.eulerAngles = SCNVector3(
-                Float.random(in: -0.3...0.3),
-                Float.random(in: 0...(Float.pi * 2)),
-                Float.random(in: -0.3...0.3)
-            )
+            nubNode.eulerAngles.y = Float.random(in: 0...(Float.pi * 2))
             root.addChildNode(nubNode)
         }
 
@@ -108,56 +86,41 @@ enum ObstacleFactory {
         let trunkBottom = CGFloat.random(in: 0.28...0.40)
         let trunkTop = trunkBottom * CGFloat.random(in: 0.55...0.7)
 
+        let bark = GameArt.barkMaterial(scorched: scorched)
         let trunk = SCNCone(topRadius: trunkTop, bottomRadius: trunkBottom, height: trunkHeight)
-        trunk.radialSegmentCount = 10
-        trunk.firstMaterial = GameArt.barkMaterial(scorched: scorched)
+        trunk.radialSegmentCount = 8
+        trunk.firstMaterial = bark
         let trunkNode = SCNNode(geometry: trunk)
         trunkNode.position = SCNVector3(0, Float(trunkHeight) * 0.5, 0)
         root.addChildNode(trunkNode)
 
-        let flare = SCNCylinder(radius: trunkBottom * 1.35, height: 0.18)
-        flare.radialSegmentCount = 8
-        flare.firstMaterial = GameArt.barkMaterial(scorched: scorched)
-        let flareNode = SCNNode(geometry: flare)
-        flareNode.position = SCNVector3(0, 0.08, 0)
-        root.addChildNode(flareNode)
-
         if scorched {
-            let char = GameArt.barkMaterial(scorched: true)
             let stump = SCNSphere(radius: trunkTop * 1.6)
-            stump.segmentCount = 10
+            stump.segmentCount = 8
             stump.firstMaterial = GameArt.rockMaterial(tint: UIColor(white: 0.12, alpha: 1))
             let stumpNode = SCNNode(geometry: stump)
             stumpNode.position = SCNVector3(0, Float(trunkHeight) + 0.1, 0)
             stumpNode.scale = SCNVector3(1, 0.55, 1)
             root.addChildNode(stumpNode)
 
-            // A couple of short, broken limbs — dead wood, nothing green left.
-            let branchCount = Int.random(in: 2...3)
-            for i in 0..<branchCount {
-                let branchLen = CGFloat.random(in: 0.35...0.65)
-                let branch = SCNCylinder(
-                    radius: trunkTop * CGFloat.random(in: 0.35...0.55),
-                    height: branchLen
-                )
-                branch.radialSegmentCount = 6
-                branch.firstMaterial = char
-                let branchNode = SCNNode(geometry: branch)
-                let side: Float = (i % 2 == 0) ? -1 : 1
-                let attachY = Float(trunkHeight) * Float.random(in: 0.45...0.82)
-                branchNode.position = SCNVector3(
-                    side * Float(trunkBottom) * 0.35,
-                    attachY,
-                    Float.random(in: -0.08...0.08)
-                )
-                // Stick mostly sideways with a slight upward / downward break.
-                branchNode.eulerAngles.z = side * Float.random(in: 1.05...1.35)
-                branchNode.eulerAngles.x = Float.random(in: -0.35...0.35)
-                branchNode.eulerAngles.y = Float.random(in: -0.4...0.4)
-                // Cylinder is Y-up; nudge so half the limb extends outward from the trunk.
-                branchNode.pivot = SCNMatrix4MakeTranslation(0, -Float(branchLen) * 0.45, 0)
-                root.addChildNode(branchNode)
-            }
+            // One broken limb — enough to read as dead wood.
+            let branchLen = CGFloat.random(in: 0.35...0.65)
+            let branch = SCNCylinder(
+                radius: trunkTop * CGFloat.random(in: 0.35...0.55),
+                height: branchLen
+            )
+            branch.radialSegmentCount = 5
+            branch.firstMaterial = bark
+            let branchNode = SCNNode(geometry: branch)
+            let side: Float = Bool.random() ? -1 : 1
+            branchNode.position = SCNVector3(
+                side * Float(trunkBottom) * 0.35,
+                Float(trunkHeight) * Float.random(in: 0.5...0.8),
+                0
+            )
+            branchNode.eulerAngles.z = side * Float.random(in: 1.05...1.35)
+            branchNode.pivot = SCNMatrix4MakeTranslation(0, -Float(branchLen) * 0.45, 0)
+            root.addChildNode(branchNode)
 
             return PlacedObstacle(
                 node: root,
@@ -170,39 +133,34 @@ enum ObstacleFactory {
         let greens: [UIColor] = [
             UIColor(red: 0.18, green: 0.48, blue: 0.20, alpha: 1),
             UIColor(red: 0.12, green: 0.40, blue: 0.16, alpha: 1),
-            UIColor(red: 0.24, green: 0.55, blue: 0.24, alpha: 1),
-            UIColor(red: 0.15, green: 0.36, blue: 0.14, alpha: 1)
+            UIColor(red: 0.24, green: 0.55, blue: 0.24, alpha: 1)
         ]
 
-        let clusterCount = Int.random(in: 5...7)
+        // 3 foliage blobs + crown — was 5–7 + crown (big GPU cost in forests).
+        let clusterCount = 3
         for i in 0..<clusterCount {
-            let radius = CGFloat.random(in: 0.55...0.95)
+            let radius = CGFloat.random(in: 0.6...0.95)
             let foliage = SCNSphere(radius: radius)
-            foliage.segmentCount = 12
-            let color = greens.randomElement()!
-            foliage.firstMaterial = GameArt.foliageMaterial(base: color)
+            foliage.segmentCount = 8
+            foliage.firstMaterial = GameArt.foliageMaterial(base: greens[i % greens.count])
             let node = SCNNode(geometry: foliage)
-            let angle = Float(i) / Float(clusterCount) * Float.pi * 2 + Float.random(in: -0.3...0.3)
-            let spread = Float.random(in: 0.15...0.55)
+            let angle = Float(i) / Float(clusterCount) * Float.pi * 2
+            let spread = Float.random(in: 0.2...0.45)
             node.position = SCNVector3(
                 cos(angle) * spread,
-                canopyBase + Float.random(in: 0.2...1.3),
+                canopyBase + Float.random(in: 0.35...1.1),
                 sin(angle) * spread
             )
-            node.scale = SCNVector3(
-                Float.random(in: 0.9...1.15),
-                Float.random(in: 0.75...1.0),
-                Float.random(in: 0.9...1.15)
-            )
+            node.scale = SCNVector3(1.05, 0.85, 1.05)
             root.addChildNode(node)
         }
 
-        let crown = SCNSphere(radius: CGFloat.random(in: 0.65...0.9))
-        crown.segmentCount = 12
+        let crown = SCNSphere(radius: CGFloat.random(in: 0.7...0.95))
+        crown.segmentCount = 8
         crown.firstMaterial = GameArt.foliageMaterial(base: greens[0])
         let crownNode = SCNNode(geometry: crown)
-        crownNode.position = SCNVector3(0, canopyBase + 1.35, 0)
-        crownNode.scale = SCNVector3(1.05, 0.85, 1.05)
+        crownNode.position = SCNVector3(0, canopyBase + 1.2, 0)
+        crownNode.scale = SCNVector3(1.1, 0.85, 1.1)
         root.addChildNode(crownNode)
 
         // Collide with the trunk only — canopy is visual.
@@ -752,56 +710,41 @@ enum ObstacleFactory {
         ]
 
         var canopyBlobs: [(pos: SCNVector3, radiusX: Float, radiusY: Float, radiusZ: Float)] = []
-        let blobCount = Int.random(in: 3...6)
+        let blobCount = Int.random(in: 2...3)
         for i in 0..<blobCount {
-            let radius = CGFloat.random(in: 0.38...0.72)
+            let radius = CGFloat.random(in: 0.4...0.72)
             let sphere = SCNSphere(radius: radius)
-            sphere.segmentCount = 10
+            sphere.segmentCount = 7
             sphere.firstMaterial = GameArt.foliageMaterial(base: greens[i % greens.count])
             let node = SCNNode(geometry: sphere)
             let pos = SCNVector3(
-                Float.random(in: -0.42...0.42),
-                Float(radius) * 0.85 + Float.random(in: -0.05...0.12),
-                Float.random(in: -0.42...0.42)
+                Float.random(in: -0.35...0.35),
+                Float(radius) * 0.85,
+                Float.random(in: -0.35...0.35)
             )
-            let sx = Float.random(in: 0.9...1.2)
-            let sy = Float.random(in: 0.65...0.95)
-            let sz = Float.random(in: 0.9...1.2)
+            let sx = Float.random(in: 0.95...1.15)
+            let sy = Float.random(in: 0.7...0.95)
+            let sz = Float.random(in: 0.95...1.15)
             node.position = pos
             node.scale = SCNVector3(sx, sy, sz)
             root.addChildNode(node)
             canopyBlobs.append((pos, Float(radius) * sx, Float(radius) * sy, Float(radius) * sz))
         }
 
-        // Twigs under the canopy.
-        let stem = SCNCylinder(radius: 0.05, height: 0.28)
-        stem.radialSegmentCount = 5
-        stem.firstMaterial = GameArt.barkMaterial()
-        let stemNode = SCNNode(geometry: stem)
-        stemNode.position = SCNVector3(0, 0.12, 0)
-        root.addChildNode(stemNode)
-
         if withBerries {
-            let berryMat = SCNMaterial()
-            // Muted cranberry red — readable without neon saturation.
-            berryMat.diffuse.contents = UIColor(red: 0.62, green: 0.22, blue: 0.24, alpha: 1)
-            berryMat.lightingModel = .blinn
-            berryMat.shininess = 0.2
-            berryMat.locksAmbientWithDiffuse = true
-
-            let berryCount = Int.random(in: 8...16)
+            let berryMat = GameArt.rockMaterial(tint: UIColor(red: 0.62, green: 0.22, blue: 0.24, alpha: 1))
+            let berryCount = Int.random(in: 3...6)
             for _ in 0..<berryCount {
                 guard let blob = canopyBlobs.randomElement() else { continue }
-                // Sit on the outer surface so berries aren't buried in the foliage.
                 var dx = Float.random(in: -1...1)
-                var dy = Float.random(in: 0.15...1) // bias upward / outward
+                var dy = Float.random(in: 0.15...1)
                 var dz = Float.random(in: -1...1)
                 let len = max(0.0001, sqrt(dx * dx + dy * dy + dz * dz))
                 dx /= len
                 dy /= len
                 dz /= len
-                let berry = SCNSphere(radius: CGFloat.random(in: 0.07...0.11))
-                berry.segmentCount = 8
+                let berry = SCNSphere(radius: CGFloat.random(in: 0.07...0.1))
+                berry.segmentCount = 5
                 berry.firstMaterial = berryMat
                 let berryNode = SCNNode(geometry: berry)
                 berryNode.position = SCNVector3(

@@ -81,15 +81,14 @@ final class TrackGenerator {
         activeBiome = biome
         currentBiomeLength = Int.max
         guard spawnStarterChunks else { return }
-        // A short starter strip; the rest streams in during the first frames of play.
-        for _ in 0..<3 {
-            spawnNextChunk()
-        }
+        // One chunk at kickoff — remaining length streams in at 1 chunk/frame.
+        spawnNextChunk()
     }
 
     func update(leadZ: Float, trailZ: Float, playerX: Float) {
-        let spawnCap = leadZ + Self.chunkLength * 3
-        while nextChunkZ < spawnCap {
+        // Keep a shorter look-ahead and at most one new chunk per frame to avoid spikes.
+        let spawnCap = leadZ + Self.chunkLength * 2
+        if nextChunkZ < spawnCap {
             spawnNextChunk()
         }
 
@@ -670,8 +669,8 @@ final class TrackGenerator {
         }
 
         if biome == .forest {
-            // Moderate forest cover — dense enough to read as woods, not a wall.
-            for _ in 0..<Int.random(in: 5...9, using: &rng) {
+            // Lighter path cover — still reads as woods without crushing FPS.
+            for _ in 0..<Int.random(in: 3...5, using: &rng) {
                 let x = Float.random(in: (-Self.trackWidth * 0.44)...(Self.trackWidth * 0.44), using: &rng)
                 let z = startZ + Float.random(in: 3...(Self.chunkLength - 3), using: &rng)
                 if isBlocked(x: x, z: z) || isTooSteep(x: x, z: z) { continue }
@@ -686,26 +685,27 @@ final class TrackGenerator {
                     forceTree: true
                 )
             }
-            // Occasional small groves.
-            for _ in 0..<Int.random(in: 1...2, using: &rng) {
+            // Occasional small grove.
+            if Float.random(in: 0...1, using: &rng) < 0.55 {
                 let cx = Float.random(in: (-Self.trackWidth * 0.4)...(Self.trackWidth * 0.4), using: &rng)
                 let cz = startZ + Float.random(in: 4...(Self.chunkLength - 4), using: &rng)
-                if isBlocked(x: cx, z: cz) { continue }
-                for _ in 0..<Int.random(in: 2...4, using: &rng) {
-                    let x = cx + Float.random(in: -2.2...2.2, using: &rng)
-                    let z = cz + Float.random(in: -2.2...2.2, using: &rng)
-                    if abs(x) > Self.trackWidth * 0.45 { continue }
-                    if isBlocked(x: x, z: z) || isTooSteep(x: x, z: z) { continue }
-                    let baseY = heightField.height(atX: x, z: z)
-                    placeObstacle(
-                        on: container,
-                        x: x,
-                        z: z,
-                        endZ: endZ,
-                        biome: .forest,
-                        baseY: baseY,
-                        forceTree: true
-                    )
+                if !isBlocked(x: cx, z: cz) {
+                    for _ in 0..<Int.random(in: 2...3, using: &rng) {
+                        let x = cx + Float.random(in: -2.0...2.0, using: &rng)
+                        let z = cz + Float.random(in: -2.0...2.0, using: &rng)
+                        if abs(x) > Self.trackWidth * 0.45 { continue }
+                        if isBlocked(x: x, z: z) || isTooSteep(x: x, z: z) { continue }
+                        let baseY = heightField.height(atX: x, z: z)
+                        placeObstacle(
+                            on: container,
+                            x: x,
+                            z: z,
+                            endZ: endZ,
+                            biome: .forest,
+                            baseY: baseY,
+                            forceTree: true
+                        )
+                    }
                 }
             }
 
@@ -803,24 +803,23 @@ final class TrackGenerator {
             container.addChildNode(bush)
         }
 
-        // Scattered larger bushes across the chunk.
-        for _ in 0..<Int.random(in: 8...14, using: &rng) {
+        // Scattered bushes — keep sparse for frame budget.
+        for _ in 0..<Int.random(in: 3...6, using: &rng) {
             let x = Float.random(in: (-Self.trackWidth * 0.44)...(Self.trackWidth * 0.44), using: &rng)
             let z = startZ + Float.random(in: 2...(Self.chunkLength - 2), using: &rng)
-            placeBush(atX: x, z: z, big: Float.random(in: 0...1, using: &rng) < 0.55)
+            placeBush(atX: x, z: z, big: Float.random(in: 0...1, using: &rng) < 0.45)
         }
 
-        // Large thickets — packs of bushes packed close together.
-        let clusterCount = Int.random(in: 1...3, using: &rng)
-        for _ in 0..<clusterCount {
+        // One small thicket at most.
+        if Float.random(in: 0...1, using: &rng) < 0.6 {
             let cx = Float.random(in: (-Self.trackWidth * 0.4)...(Self.trackWidth * 0.4), using: &rng)
             let cz = startZ + Float.random(in: 3...(Self.chunkLength - 3), using: &rng)
-            if isBlocked(x: cx, z: cz) { continue }
-            let bushesInCluster = Int.random(in: 5...10, using: &rng)
-            for _ in 0..<bushesInCluster {
-                let x = cx + Float.random(in: -3.2...3.2, using: &rng)
-                let z = cz + Float.random(in: -3.2...3.2, using: &rng)
-                placeBush(atX: x, z: z, big: Float.random(in: 0...1, using: &rng) < 0.7)
+            if !isBlocked(x: cx, z: cz) {
+                for _ in 0..<Int.random(in: 3...5, using: &rng) {
+                    let x = cx + Float.random(in: -2.5...2.5, using: &rng)
+                    let z = cz + Float.random(in: -2.5...2.5, using: &rng)
+                    placeBush(atX: x, z: z, big: false)
+                }
             }
         }
     }
@@ -1210,41 +1209,39 @@ final class TrackGenerator {
 
     private func addSideForestTrees(to container: SCNNode, startZ: Float, endZ: Float) {
         let halfPath = Self.trackWidth * 0.5
-        let count = Int.random(in: 16...24, using: &rng)
+        // Edge decor is the biggest FPS cost — keep a thin tree line, not a dense wall.
+        let count = Int.random(in: 6...10, using: &rng)
         for _ in 0..<count {
             let side: Float = Bool.random(using: &rng) ? -1 : 1
-            let x = side * Float.random(in: (halfPath + 1.5)...(halfPath + 44), using: &rng)
+            let x = side * Float.random(in: (halfPath + 2)...(halfPath + 28), using: &rng)
             let z = Float.random(in: startZ...(endZ - 0.5), using: &rng)
             let tree = ObstacleFactory.makeTree(at: SCNVector3(x, 0.05, z))
             tree.node.name = "edgeDecor"
-            // Slightly scale outer trees up so they form a thicker wall.
-            let grow = Float.random(in: 1.0...1.35, using: &rng)
+            let grow = Float.random(in: 1.05...1.3, using: &rng)
             tree.node.scale = SCNVector3(grow, grow, grow)
             container.addChildNode(tree.node)
         }
 
-        // Match the playable forest denseness with side bushes and rocks (decor only).
-        for _ in 0..<Int.random(in: 14...22, using: &rng) {
+        for _ in 0..<Int.random(in: 4...7, using: &rng) {
             let side: Float = Bool.random(using: &rng) ? -1 : 1
-            let x = side * Float.random(in: (halfPath + 1.2)...(halfPath + 40), using: &rng)
+            let x = side * Float.random(in: (halfPath + 1.5)...(halfPath + 24), using: &rng)
             let z = Float.random(in: startZ...(endZ - 0.5), using: &rng)
-            let berries = Float.random(in: 0...1, using: &rng) < 0.45
             let bush = ObstacleFactory.makeBush(
                 at: SCNVector3(x, 0.05, z),
-                scaleRange: 0.9...1.45,
-                withBerries: berries
+                scaleRange: 0.95...1.35,
+                withBerries: false
             )
             bush.name = "edgeDecor"
             container.addChildNode(bush)
         }
 
-        for _ in 0..<Int.random(in: 8...14, using: &rng) {
+        for _ in 0..<Int.random(in: 3...5, using: &rng) {
             let side: Float = Bool.random(using: &rng) ? -1 : 1
-            let x = side * Float.random(in: (halfPath + 2)...(halfPath + 36), using: &rng)
+            let x = side * Float.random(in: (halfPath + 2)...(halfPath + 22), using: &rng)
             let z = Float.random(in: startZ...(endZ - 0.5), using: &rng)
             let rock = ObstacleFactory.makeRock(
                 at: SCNVector3(x, 0.05, z),
-                sizeRange: 0.55...1.15
+                sizeRange: 0.55...1.1
             )
             rock.node.name = "edgeDecor"
             container.addChildNode(rock.node)
