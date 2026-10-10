@@ -78,6 +78,26 @@ enum Biome: CaseIterable {
         case .tropical: return "Sand dunes, crabs, and sea turtles"
         }
     }
+
+    var rouletteSymbol: String {
+        switch self {
+        case .swamp: return "leaf.fill"
+        case .forest: return "tree.fill"
+        case .lava: return "flame.fill"
+        case .snow: return "snowflake"
+        case .tropical: return "sun.max.fill"
+        }
+    }
+
+    var rouletteAccent: UIColor {
+        switch self {
+        case .swamp: return UIColor(red: 0.35, green: 0.72, blue: 0.42, alpha: 1)
+        case .forest: return UIColor(red: 0.28, green: 0.62, blue: 0.32, alpha: 1)
+        case .lava: return UIColor(red: 0.98, green: 0.42, blue: 0.16, alpha: 1)
+        case .snow: return UIColor(red: 0.72, green: 0.88, blue: 1.0, alpha: 1)
+        case .tropical: return UIColor(red: 0.98, green: 0.78, blue: 0.28, alpha: 1)
+        }
+    }
 }
 
 enum TerrainProfiles {

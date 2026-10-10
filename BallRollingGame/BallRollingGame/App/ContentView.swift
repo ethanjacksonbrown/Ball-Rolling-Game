@@ -5,7 +5,7 @@ struct ContentView: View {
 
     private var showsGameWorld: Bool {
         switch game.state {
-        case .playing, .dead, .won: return true
+        case .playing, .paused, .dead, .won: return true
         default: return false
         }
     }
@@ -22,7 +22,7 @@ struct ContentView: View {
             }
 
             VStack {
-                if game.state == .playing || game.state == .dead || game.state == .won {
+                if game.state == .playing || game.state == .paused || game.state == .dead || game.state == .won {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("\(game.distance)m / \(game.raceLengthMeters)m")
@@ -50,15 +50,17 @@ struct ContentView: View {
                     .padding(.horizontal, 16)
                 }
 
-                Spacer()
+                if game.state != .menu && game.state != .biomeRoulette {
+                    Spacer()
+                }
 
                 switch game.state {
                 case .menu:
                     mainMenu
-                        .padding(.bottom, 48)
-                case .levelSelect:
-                    levelSelect
-                        .padding(.bottom, 36)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .biomeRoulette:
+                    biomeRoulette
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .skinShop:
                     skinShop
                         .padding(.bottom, 36)
@@ -72,126 +74,95 @@ struct ContentView: View {
                     finishCard(won: true)
                         .padding(.bottom, 48)
                 case .playing:
-                    powerUpHUD
-                        .padding(.bottom, 36)
-                        .padding(.trailing, 16)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    HStack(alignment: .bottom) {
+                        pauseButton
+                            .padding(.leading, 16)
+                        Spacer()
+                        powerUpHUD
+                            .padding(.trailing, 16)
+                    }
+                    .padding(.bottom, 36)
+                case .paused:
+                    pauseMenu
+                        .padding(.bottom, 48)
                 }
             }
         }
     }
 
     private var menuBackground: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.10, green: 0.16, blue: 0.28),
-                Color(red: 0.16, green: 0.28, blue: 0.42),
-                Color(red: 0.22, green: 0.38, blue: 0.48)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        GeometryReader { geo in
+            let useLandscape = geo.size.width > geo.size.height
+            ZStack {
+                Image(useLandscape ? "MenuHeroLandscape" : "MenuHero")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+
+                // Keep the scenic art readable while CTA text stays sharp.
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(0.18),
+                        Color.black.opacity(0.08),
+                        Color.black.opacity(0.55),
+                        Color.black.opacity(0.82)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
     }
 
     private var mainMenu: some View {
-        VStack(spacing: 18) {
-            Text("Ball Roll")
-                .font(.system(size: 40, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
+        GeometryReader { geo in
+            let isWide = geo.size.width > geo.size.height || geo.size.width >= 700
+            let titleSize: CGFloat = isWide ? 72 : 42
 
-            coinBadge(text: "\(game.totalCoins)", subtitle: "total coins")
-
-            Text("Race four bots to the finish line.\nBounce off trees and rocks — first across wins!")
-                .font(.system(size: 16, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-
-            menuButton(title: "Level Select", color: .orange) {
-                game.openLevelSelect()
-            }
-
-            menuButton(title: "Skin Shop", color: Color(red: 0.22, green: 0.52, blue: 0.86)) {
-                game.openSkinShop()
-            }
-
-            menuButton(title: "Power-ups", color: Color(red: 0.18, green: 0.62, blue: 0.48)) {
-                game.openPowerUpShop()
-            }
-        }
-        .padding(24)
-        .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal, 28)
-    }
-
-    private var levelSelect: some View {
-        VStack(spacing: 14) {
-            HStack {
-                Text("Level Select")
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-                Spacer()
-                Button("Back") {
-                    game.returnToMenu()
-                }
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.18), in: Capsule())
-            }
-
-            Text("Tap a biome to start racing there.")
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.8))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            ForEach(Biome.allCases, id: \.self) { biome in
-                levelRow(biome)
-            }
-        }
-        .padding(20)
-        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .padding(.horizontal, 22)
-    }
-
-    private func levelRow(_ biome: Biome) -> some View {
-        Button {
-            game.playLevel(biome)
-        } label: {
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(biome.groundColor))
-                    .frame(width: 44, height: 44)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(.white.opacity(0.25), lineWidth: 1)
-                    )
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(biome.displayName)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
+            VStack(spacing: 0) {
+                VStack(spacing: isWide ? 18 : 14) {
+                    Text("BIOME RACING")
+                        .font(.system(size: titleSize, weight: .black, design: .rounded))
                         .foregroundStyle(.white)
-                    Text(biome.levelSubtitle)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.7))
+                        .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
+                        .minimumScaleFactor(0.65)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+
+                    coinBadge(text: "\(game.totalCoins)", subtitle: "total coins")
                 }
+                .padding(.top, isWide ? 28 : 16)
 
-                Spacer()
+                Spacer(minLength: 24)
 
-                Text("Play")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Color.orange, in: Capsule())
+                VStack(spacing: 12) {
+                    menuButton(title: "Play", color: Color(red: 0.98, green: 0.52, blue: 0.16)) {
+                        game.openBiomeRoulette()
+                    }
+
+                    menuButton(title: "Skins", color: Color(red: 0.18, green: 0.48, blue: 0.78)) {
+                        game.openSkinShop()
+                    }
+
+                    menuButton(title: "Power-ups", color: Color(red: 0.14, green: 0.58, blue: 0.44)) {
+                        game.openPowerUpShop()
+                    }
+                }
+                .padding(.bottom, isWide ? 56 : 48)
             }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(0.1))
-            )
+            .padding(.horizontal, isWide ? 48 : 28)
+            .frame(maxWidth: isWide ? 560 : 420)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
         }
-        .buttonStyle(.plain)
+    }
+
+    private var biomeRoulette: some View {
+        BiomeRouletteView { biome in
+            game.playLevel(biome)
+        } onCancel: {
+            game.returnToMenu()
+        }
     }
 
     private var leaderboard: some View {
@@ -271,11 +242,15 @@ struct ContentView: View {
 
     private var skinShop: some View {
         VStack(spacing: 16) {
-            HStack {
+            HStack(alignment: .center, spacing: 12) {
                 Text("Skin Shop")
                     .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
-                Spacer()
+
+                Spacer(minLength: 8)
+
+                coinBadge(text: "\(game.totalCoins)", subtitle: "coins")
+
                 Button("Back") {
                     game.returnToMenu()
                 }
@@ -286,14 +261,19 @@ struct ContentView: View {
                 .background(Color.white.opacity(0.18), in: Capsule())
             }
 
-            Text("Equip a ball for your next run.")
+            Text("Classic is free. Unlock the rest with coins, then equip one.")
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.8))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            ForEach(BallSkin.allCases) { skin in
-                skinRow(skin)
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(BallSkin.allCases) { skin in
+                        skinRow(skin)
+                    }
+                }
             }
+            .frame(maxHeight: 440)
         }
         .padding(20)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -510,6 +490,46 @@ struct ContentView: View {
     }
 
     @ViewBuilder
+    private var pauseButton: some View {
+        Button {
+            game.pauseRun()
+        } label: {
+            Image(systemName: "pause.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(.black.opacity(0.45), in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Pause")
+    }
+
+    private var pauseMenu: some View {
+        VStack(spacing: 18) {
+            Text("Paused")
+                .font(.system(size: 34, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text("The race is frozen until you continue.")
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.8))
+                .multilineTextAlignment(.center)
+
+            menuButton(title: "Resume Run", color: .orange) {
+                game.resumeRun()
+            }
+
+            menuButton(title: "Exit", color: Color(white: 0.28)) {
+                game.exitRun()
+            }
+        }
+        .padding(24)
+        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 28)
+    }
+
+    @ViewBuilder
     private var powerUpHUD: some View {
         if let type = game.equippedPowerUp {
             let accent = powerUpAccent(type)
@@ -562,46 +582,74 @@ struct ContentView: View {
     }
 
     private func skinRow(_ skin: BallSkin) -> some View {
+        let owned = game.ownedSkins.contains(skin) || skin.isFree
         let selected = game.selectedSkin == skin
-        return Button {
-            game.selectSkin(skin)
-        } label: {
-            HStack(spacing: 14) {
-                skinPreview(skin)
-                    .frame(width: 56, height: 56)
+        let cost = skin.coinCost
+        let canAfford = game.totalCoins >= cost
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(skin.displayName)
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text(skin.subtitle)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.7))
+        return HStack(spacing: 14) {
+            skinPreview(skin)
+                .frame(width: 56, height: 56)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(skin.displayName)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(skin.subtitle)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                if !owned {
+                    Text("\(cost) coins")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(red: 0.95, green: 0.78, blue: 0.18))
                 }
-
-                Spacer()
-
-                Text(selected ? "Equipped" : "Select")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(selected ? Color.orange : .white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        (selected ? Color.orange.opacity(0.2) : Color.white.opacity(0.12)),
-                        in: Capsule()
-                    )
             }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(selected ? 0.16 : 0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(selected ? Color.orange : Color.clear, lineWidth: 2)
-                    )
-            )
+
+            Spacer()
+
+            if owned {
+                Button {
+                    game.selectSkin(skin)
+                } label: {
+                    Text(selected ? "Equipped" : "Select")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(selected ? Color.orange : .white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            (selected ? Color.orange.opacity(0.2) : Color.white.opacity(0.12)),
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(selected)
+            } else {
+                Button {
+                    game.purchaseSkin(skin)
+                } label: {
+                    Text(canAfford ? "Buy" : "Need coins")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(canAfford ? .white : .white.opacity(0.55))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            (canAfford ? Color.orange : Color.white.opacity(0.12)),
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canAfford)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(selected ? 0.16 : 0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(selected ? Color.orange : Color.clear, lineWidth: 2)
+                )
+        )
     }
 
     @ViewBuilder
@@ -663,11 +711,20 @@ struct ContentView: View {
             Text(title)
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-                .frame(maxWidth: 260)
-                .padding(.vertical, 14)
-                .background(color, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(color)
+                        .shadow(color: color.opacity(0.45), radius: 10, y: 4)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: 300)
     }
 }
 

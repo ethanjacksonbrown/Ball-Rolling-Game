@@ -2,10 +2,11 @@ import Foundation
 
 enum GameState: Equatable {
     case menu
-    case levelSelect
+    case biomeRoulette
     case skinShop
     case powerUpShop
     case playing
+    case paused
     case dead
     case won
 }

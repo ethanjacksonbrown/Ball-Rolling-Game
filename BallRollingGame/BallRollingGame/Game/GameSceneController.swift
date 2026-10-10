@@ -6,6 +6,7 @@ final class GameSceneController: NSObject, ObservableObject {
     @Published private(set) var state: GameState = .menu
     @Published private(set) var distance: Int = 0
     @Published private(set) var selectedSkin: BallSkin = SkinStore.selected
+    @Published private(set) var ownedSkins: Set<BallSkin> = Set(BallSkin.allCases.filter { SkinStore.isOwned($0) })
     @Published private(set) var selectedLevel: Biome = .forest
     @Published private(set) var finishPlace: Int = 1
     @Published private(set) var standings: [RaceStanding] = []
@@ -93,7 +94,7 @@ final class GameSceneController: NSObject, ObservableObject {
     }
 
     func startPlay() {
-        guard state == .menu || state == .levelSelect || state == .dead || state == .won else { return }
+        guard state == .menu || state == .biomeRoulette || state == .dead || state == .won else { return }
 
         // Stop post-race coast immediately so we don't keep growing the track.
         cameraLockedAtFinish = false
@@ -132,17 +133,39 @@ final class GameSceneController: NSObject, ObservableObject {
     }
 
     func returnToMenu() {
-        guard state == .dead || state == .won || state == .skinShop || state == .powerUpShop || state == .levelSelect else { return }
+        guard state == .dead || state == .won || state == .skinShop || state == .powerUpShop || state == .biomeRoulette || state == .paused else { return }
         resetToMenu()
     }
 
-    func openLevelSelect() {
+    func pauseRun() {
+        guard state == .playing else { return }
+        input.reset()
+        pendingPlayerPowerUpActivation = false
+        // Don't set scene.isPaused — that can deadlock SceneKit's render thread
+        // when called from SwiftUI. Skipping updates via `.paused` is enough.
+        state = .paused
+    }
+
+    func resumeRun() {
+        guard state == .paused else { return }
+        // Avoid a huge first frame after the pause so nothing teleports forward.
+        lastUpdateTime = 0
+        state = .playing
+    }
+
+    func exitRun() {
+        guard state == .paused else { return }
+        returnToMenu()
+    }
+
+    func openBiomeRoulette() {
         guard state == .menu else { return }
-        state = .levelSelect
+        state = .biomeRoulette
     }
 
     func openSkinShop() {
         guard state == .menu else { return }
+        refreshSkinShopState()
         state = .skinShop
     }
 
@@ -267,15 +290,32 @@ final class GameSceneController: NSObject, ObservableObject {
 
     /// Pick a biome and jump straight into that race.
     func playLevel(_ biome: Biome) {
-        guard state == .levelSelect || state == .menu || state == .dead || state == .won else { return }
+        guard state == .biomeRoulette || state == .menu || state == .dead || state == .won else { return }
         selectedLevel = biome
         startPlay()
     }
 
     func selectSkin(_ skin: BallSkin) {
+        guard SkinStore.isOwned(skin) else { return }
         selectedSkin = skin
         SkinStore.selected = skin
         player.applySkin(skin)
+        refreshSkinShopState()
+    }
+
+    func purchaseSkin(_ skin: BallSkin) {
+        guard state == .skinShop else { return }
+        guard SkinStore.purchase(skin) else { return }
+        selectedSkin = skin
+        SkinStore.selected = skin
+        player.applySkin(skin)
+        refreshSkinShopState()
+    }
+
+    private func refreshSkinShopState() {
+        ownedSkins = Set(BallSkin.allCases.filter { SkinStore.isOwned($0) })
+        selectedSkin = SkinStore.selected
+        totalCoins = CoinStore.total
     }
 
     func handlePan(_ gesture: UIPanGestureRecognizer) {

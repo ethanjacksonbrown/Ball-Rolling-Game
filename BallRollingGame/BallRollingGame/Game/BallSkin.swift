@@ -39,6 +39,22 @@ enum BallSkin: String, CaseIterable, Identifiable, Equatable {
         }
     }
 
+    /// Coin price to unlock. Classic is free.
+    var coinCost: Int {
+        switch self {
+        case .classic: return 0
+        case .soccer: return 25
+        case .basketball: return 40
+        case .tennis: return 40
+        case .beachBall: return 50
+        case .marble: return 75
+        case .neon: return 100
+        case .gold: return 150
+        }
+    }
+
+    var isFree: Bool { coinCost == 0 }
+
     /// Simple shop preview tint when no custom texture is used.
     var previewColor: UIColor {
         switch self {
@@ -55,18 +71,47 @@ enum BallSkin: String, CaseIterable, Identifiable, Equatable {
 }
 
 enum SkinStore {
-    private static let key = "selectedBallSkin"
+    private static let selectedKey = "selectedBallSkin"
+    private static let ownedKey = "ownedBallSkins"
 
     static var selected: BallSkin {
         get {
-            guard let raw = UserDefaults.standard.string(forKey: key),
-                  let skin = BallSkin(rawValue: raw) else {
+            guard let raw = UserDefaults.standard.string(forKey: selectedKey),
+                  let skin = BallSkin(rawValue: raw),
+                  isOwned(skin) else {
                 return .classic
             }
             return skin
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: key)
+            guard isOwned(newValue) else { return }
+            UserDefaults.standard.set(newValue.rawValue, forKey: selectedKey)
+        }
+    }
+
+    static func isOwned(_ skin: BallSkin) -> Bool {
+        if skin.isFree { return true }
+        return ownedRaw.contains(skin.rawValue)
+    }
+
+    /// Unlock a paid skin. Returns false if already owned or can't afford.
+    @discardableResult
+    static func purchase(_ skin: BallSkin) -> Bool {
+        if isOwned(skin) { return false }
+        guard CoinStore.spend(skin.coinCost) else { return false }
+        var owned = ownedRaw
+        owned.insert(skin.rawValue)
+        ownedRaw = owned
+        return true
+    }
+
+    private static var ownedRaw: Set<String> {
+        get {
+            let saved = UserDefaults.standard.stringArray(forKey: ownedKey) ?? []
+            return Set(saved)
+        }
+        set {
+            UserDefaults.standard.set(Array(newValue).sorted(), forKey: ownedKey)
         }
     }
 }
