@@ -2,8 +2,10 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var game = GameSceneController()
+    @ObservedObject private var ads = AdManager.shared
     @State private var sfxVolumePercent: Double = Double(SoundSettings.masterVolume * 100)
     @State private var musicVolumePercent: Double = Double(SoundSettings.musicVolume * 100)
+    @State private var rewardedClaimedThisRace = false
 
     private var showsGameWorld: Bool {
         switch game.state {
@@ -97,9 +99,14 @@ struct ContentView: View {
             GameMusic.shared.prepare()
             GameMusic.shared.setRacing(game.state == .playing)
             GameMusic.shared.start()
+            AdManager.shared.startIfNeeded()
         }
         .onChange(of: game.state) { _, state in
             GameMusic.shared.setRacing(state == .playing)
+            if state == .won || state == .dead {
+                rewardedClaimedThisRace = false
+                AdManager.shared.onRaceFinished()
+            }
         }
     }
 
@@ -236,6 +243,28 @@ struct ContentView: View {
                 .foregroundStyle(.white.opacity(0.85))
 
             coinBadge(text: "+\(game.runCoins)", subtitle: "coins this race")
+
+            if !rewardedClaimedThisRace {
+                menuButton(
+                    title: ads.isRewardedReady
+                        ? "Watch Ad · +\(AdConfig.rewardedCoinBonus) Coins"
+                        : "Bonus Ad Loading…",
+                    color: Color(red: 0.55, green: 0.35, blue: 0.85)
+                ) {
+                    guard ads.isRewardedReady else { return }
+                    AdManager.shared.presentRewarded { earned in
+                        guard earned else { return }
+                        game.grantBonusCoins(AdConfig.rewardedCoinBonus)
+                        rewardedClaimedThisRace = true
+                    }
+                }
+                .disabled(!ads.isRewardedReady)
+                .opacity(ads.isRewardedReady ? 1 : 0.55)
+            } else {
+                Text("+\(AdConfig.rewardedCoinBonus) bonus coins claimed")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
 
             menuButton(title: "Play Again", color: .orange) {
                 game.startPlay()

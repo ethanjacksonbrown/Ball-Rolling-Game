@@ -209,6 +209,15 @@ final class GameSceneController: NSObject, ObservableObject {
         pendingPlayerPowerUpActivation = true
     }
 
+    /// Coins from a rewarded ad (finish-screen bonus). Safe to call from main.
+    func grantBonusCoins(_ amount: Int) {
+        guard amount > 0 else { return }
+        CoinStore.add(amount)
+        totalCoins = CoinStore.total
+        runCoins += amount
+        CoinSFX.shared.play(count: min(amount, 5))
+    }
+
     private func processPendingPlayerPowerUpActivation() {
         guard pendingPlayerPowerUpActivation else { return }
         pendingPlayerPowerUpActivation = false
