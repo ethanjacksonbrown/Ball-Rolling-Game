@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var game = GameSceneController()
     @State private var sfxVolumePercent: Double = Double(SoundSettings.masterVolume * 100)
+    @State private var musicVolumePercent: Double = Double(SoundSettings.musicVolume * 100)
 
     private var showsGameWorld: Bool {
         switch game.state {
@@ -92,6 +93,14 @@ struct ContentView: View {
                 }
             }
         }
+        .onAppear {
+            GameMusic.shared.prepare()
+            GameMusic.shared.setRacing(game.state == .playing)
+            GameMusic.shared.start()
+        }
+        .onChange(of: game.state) { _, state in
+            GameMusic.shared.setRacing(state == .playing)
+        }
     }
 
     private var menuBackground: some View {
@@ -155,6 +164,7 @@ struct ContentView: View {
 
                     menuButton(title: "Settings", color: Color(white: 0.28)) {
                         sfxVolumePercent = Double(SoundSettings.masterVolume * 100)
+                        musicVolumePercent = Double(SoundSettings.musicVolume * 100)
                         game.openSettings()
                     }
                 }
@@ -308,29 +318,25 @@ struct ContentView: View {
                 .background(Color.white.opacity(0.18), in: Capsule())
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Sound Effects")
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Spacer()
-                    Text("\(Int(sfxVolumePercent.rounded()))%")
-                        .font(.system(size: 17, weight: .heavy, design: .rounded))
-                        .foregroundStyle(.orange)
-                        .monospacedDigit()
+            VStack(alignment: .leading, spacing: 18) {
+                volumeRow(
+                    title: "Music",
+                    percent: $musicVolumePercent,
+                    playsPreviewSound: false
+                ) { value in
+                    SoundSettings.musicVolume = Float(value / 100)
+                    GameMusic.shared.refreshFromSettings()
                 }
 
-                Slider(value: $sfxVolumePercent, in: 0...100, step: 1) { editing in
-                    if !editing {
-                        CoinSFX.shared.play(count: 1)
-                    }
-                }
-                .tint(.orange)
-                .onChange(of: sfxVolumePercent) { _, newValue in
-                    SoundSettings.masterVolume = Float(newValue / 100)
+                volumeRow(
+                    title: "Sound Effects",
+                    percent: $sfxVolumePercent,
+                    playsPreviewSound: true
+                ) { value in
+                    SoundSettings.masterVolume = Float(value / 100)
                 }
 
-                Text("Applies to coin pickups, the biome roulette, and other effects.")
+                Text("Music and sound effects are separate — turn effects down and keep the song, or the other way around.")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.7))
             }
@@ -340,6 +346,40 @@ struct ContentView: View {
         .padding(20)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 22)
+    }
+
+    private func volumeRow(
+        title: String,
+        percent: Binding<Double>,
+        playsPreviewSound: Bool,
+        onChange: @escaping (Double) -> Void
+    ) -> some View {
+        let binding = Binding<Double>(
+            get: { percent.wrappedValue },
+            set: { newValue in
+                percent.wrappedValue = newValue
+                onChange(newValue)
+            }
+        )
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Spacer()
+                Text("\(Int(percent.wrappedValue.rounded()))%")
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.orange)
+                    .monospacedDigit()
+            }
+
+            Slider(value: binding, in: 0...100, step: 1) { editing in
+                if !editing && playsPreviewSound {
+                    CoinSFX.shared.play(count: 1)
+                }
+            }
+            .tint(.orange)
+        }
     }
 
     private var powerUpShop: some View {

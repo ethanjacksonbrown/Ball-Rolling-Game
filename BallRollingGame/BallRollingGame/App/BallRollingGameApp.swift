@@ -13,8 +13,14 @@ struct BallRollingGameApp: App {
                     TrackingPermission.requestIfNeeded()
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active {
+                    switch phase {
+                    case .active:
                         TrackingPermission.requestIfNeeded()
+                        GameMusic.shared.start()
+                    case .inactive, .background:
+                        GameMusic.shared.stop()
+                    @unknown default:
+                        break
                     }
                 }
         }

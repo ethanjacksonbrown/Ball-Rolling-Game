@@ -39,6 +39,8 @@ final class GameSceneController: NSObject, ObservableObject {
     /// After the player crosses, lock the chase cam on the finish and let others stream in.
     private var cameraLockedAtFinish = false
     private var awaitingPodium = false
+    /// Latches endRace before @Published `state` hops to main (renderer is off-main).
+    private var raceResultPending = false
     private var podiumTimer: Float = 0
     private let podiumTimeout: Float = 14
     private var finishLeadMeters: Float = 0
@@ -99,6 +101,7 @@ final class GameSceneController: NSObject, ObservableObject {
         // Stop post-race coast immediately so we don't keep growing the track.
         cameraLockedAtFinish = false
         awaitingPodium = false
+        raceResultPending = false
         podiumTimer = 0
         // Use SceneKit's next render timestamp (not CACurrentMediaTime) for a clean first dt.
         lastUpdateTime = 0
@@ -245,13 +248,17 @@ final class GameSceneController: NSObject, ObservableObject {
             || powerUpEffectActive != nextActive
             || powerUpReady != nextReady else { return }
 
-        let apply = { [weak self] in
+        // @Published must be updated on the main thread (renderer runs off-main).
+        publishOnMain { [weak self] in
             guard let self else { return }
             self.powerUpCooldownRemaining = nextCD
             self.powerUpEffectActive = nextActive
             self.powerUpReady = nextReady
         }
-        // @Published must be updated on the main thread (renderer runs off-main).
+    }
+
+    /// SceneKit's renderer callback is off-main; hop @Published writes to main.
+    private func publishOnMain(_ apply: @escaping () -> Void) {
         if Thread.isMainThread {
             apply()
         } else {
@@ -539,6 +546,7 @@ final class GameSceneController: NSObject, ObservableObject {
         standings = []
         cameraLockedAtFinish = false
         awaitingPodium = false
+        raceResultPending = false
         podiumTimer = 0
         pendingPlayerPowerUpActivation = false
         state = .menu
@@ -563,7 +571,6 @@ final class GameSceneController: NSObject, ObservableObject {
         guard !awaitingPodium else { return }
         awaitingPodium = true
         cameraLockedAtFinish = true
-        finishPlace = playerPlace
         podiumTimer = 0
         let rivalZ = bots
             .filter { $0.isAlive || $0.hasFinished }
@@ -572,18 +579,26 @@ final class GameSceneController: NSObject, ObservableObject {
         finishLeadMeters = player.position.z - rivalZ
         input.reset()
         camera.snap(to: finishCameraFocus())
+        publishOnMain { [weak self] in
+            self?.finishPlace = playerPlace
+        }
     }
 
     private func endRace(playerPlace: Int) {
-        guard state == .playing else { return }
-        finishPlace = playerPlace
+        guard state == .playing, !raceResultPending else { return }
+        raceResultPending = true
         BotDifficultyStore.recordResult(place: playerPlace, leadMeters: finishLeadMeters)
         input.reset()
         refreshStandings()
         awaitingPodium = false
         // Keep cameraLockedAtFinish so the finish cam holds through the results screen.
         // Balls keep rolling — do not freeze.
-        state = playerPlace == 1 ? .won : .dead
+        let nextState: GameState = playerPlace == 1 ? .won : .dead
+        publishOnMain { [weak self] in
+            guard let self else { return }
+            self.finishPlace = playerPlace
+            self.state = nextState
+        }
     }
 
     /// True once every living racer has a finish order (DNFs don't block the podium).
@@ -625,12 +640,8 @@ final class GameSceneController: NSObject, ObservableObject {
         }
         // Skip @Published churn when order hasn't changed (was rebuilding SwiftUI every frame).
         guard rows != standings else { return }
-        if Thread.isMainThread {
-            standings = rows
-        } else {
-            DispatchQueue.main.async { [weak self] in
-                self?.standings = rows
-            }
+        publishOnMain { [weak self] in
+            self?.standings = rows
         }
     }
 
@@ -809,10 +820,14 @@ final class GameSceneController: NSObject, ObservableObject {
                 deltaTime: deltaTime
             )
             if gained > 0 {
-                runCoins += gained
                 CoinStore.add(gained)
-                totalCoins = CoinStore.total
+                let newTotal = CoinStore.total
                 CoinSFX.shared.play(count: gained)
+                publishOnMain { [weak self] in
+                    guard let self else { return }
+                    self.runCoins += gained
+                    self.totalCoins = newTotal
+                }
             }
         }
 
@@ -885,7 +900,9 @@ final class GameSceneController: NSObject, ObservableObject {
         let traveled = Int(max(0, min(player.position.z, finishZ) - startZ))
         if traveled != displayedDistance {
             displayedDistance = traveled
-            distance = traveled
+            publishOnMain { [weak self] in
+                self?.distance = traveled
+            }
         }
     }
 
@@ -948,8 +965,13 @@ extension GameSceneController: SCNSceneRendererDelegate {
         lastUpdateTime = time
 
         switch state {
-        case .playing:
+        case .playing where !raceResultPending:
             updatePlaying(deltaTime: dt)
+        case .playing where raceResultPending:
+            // Results UI is hopping to main; keep the finish-cam coast going.
+            if cameraLockedAtFinish {
+                updatePostRaceCoast(deltaTime: dt)
+            }
         case .won, .dead:
             if cameraLockedAtFinish {
                 updatePostRaceCoast(deltaTime: dt)
