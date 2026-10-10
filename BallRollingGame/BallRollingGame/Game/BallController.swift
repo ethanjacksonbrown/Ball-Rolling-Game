@@ -113,23 +113,11 @@ final class BallController {
     }
 
     /// Solid bounce off trees/rocks/bears — push out and rebound so you must go around.
-    /// Returns false if a shield absorbed the hit (no bounce applied).
-    @discardableResult
     func resolveSolidContact(
         _ hit: ObstacleContact,
-        trackHalfWidth: Float,
-        shieldAbsorb: (() -> Bool)? = nil
-    ) -> Bool {
-        guard isAlive else { return true }
-
-        if let shieldAbsorb, shieldAbsorb() {
-            // Nudge out of overlap without bounce impulse.
-            node.position.x += hit.normalX * hit.overlap
-            node.position.z += hit.normalZ * hit.overlap
-            let maxX = trackHalfWidth - radius - 0.08
-            node.position.x = max(-maxX, min(maxX, node.position.x))
-            return false
-        }
+        trackHalfWidth: Float
+    ) {
+        guard isAlive else { return }
 
         node.position.x += hit.normalX * hit.overlap
         node.position.z += hit.normalZ * hit.overlap
@@ -140,7 +128,6 @@ final class BallController {
 
         let maxX = trackHalfWidth - radius - 0.08
         node.position.x = max(-maxX, min(maxX, node.position.x))
-        return true
     }
 
     /// Resolve overlaps against solid props (trees, rocks, polar bears).
@@ -155,8 +142,7 @@ final class BallController {
         lavaLizards: LavaLizardIndex,
         crabs: CrabIndex,
         seaTurtles: SeaTurtleIndex,
-        trackHalfWidth: Float,
-        shieldAbsorb: (() -> Bool)? = nil
+        trackHalfWidth: Float
     ) {
         guard isAlive else { return }
 
@@ -174,8 +160,7 @@ final class BallController {
                 ?? crabs.deepestContact(x: pos.x, y: pos.y, z: pos.z, ballRadius: radius)
                 ?? seaTurtles.deepestContact(x: pos.x, y: pos.y, z: pos.z, ballRadius: radius)
             guard let hit else { break }
-            let bounced = resolveSolidContact(hit, trackHalfWidth: trackHalfWidth, shieldAbsorb: shieldAbsorb)
-            if !bounced { break }
+            resolveSolidContact(hit, trackHalfWidth: trackHalfWidth)
         }
     }
 
@@ -191,7 +176,6 @@ final class BallController {
         deltaTime: Float,
         isSpeedBoost: Bool,
         isGhost: Bool,
-        hasShield: Bool,
         isMagnet: Bool
     ) {
         guard isAlive else { return }
@@ -199,7 +183,6 @@ final class BallController {
             deltaTime: deltaTime,
             isSpeedBoost: isSpeedBoost,
             isGhost: isGhost,
-            hasShield: hasShield,
             isMagnet: isMagnet
         )
     }

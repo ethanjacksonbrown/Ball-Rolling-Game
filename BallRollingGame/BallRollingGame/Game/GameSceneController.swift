@@ -133,7 +133,7 @@ final class GameSceneController: NSObject, ObservableObject {
     }
 
     func returnToMenu() {
-        guard state == .dead || state == .won || state == .skinShop || state == .powerUpShop || state == .biomeRoulette || state == .paused else { return }
+        guard state == .dead || state == .won || state == .skinShop || state == .powerUpShop || state == .settings || state == .biomeRoulette || state == .paused else { return }
         resetToMenu()
     }
 
@@ -173,6 +173,11 @@ final class GameSceneController: NSObject, ObservableObject {
         guard state == .menu else { return }
         refreshPowerUpShopState()
         state = .powerUpShop
+    }
+
+    func openSettings() {
+        guard state == .menu else { return }
+        state = .settings
     }
 
     func purchasePowerUp(_ type: PowerUpType) {
@@ -697,14 +702,6 @@ final class GameSceneController: NSObject, ObservableObject {
                 ballRadius: bot.radius + 0.15
             )
             return blocked || Float.random(in: 0...1) < 0.08
-        case .shield:
-            let nearSolid = track.obstacles.intersectsBall(
-                x: bot.position.x,
-                y: bot.position.y,
-                z: bot.position.z + 5,
-                ballRadius: bot.radius + 0.4
-            )
-            return nearSolid || Float.random(in: 0...1) < 0.1
         case .slowPulse:
             let dx = player.position.x - bot.position.x
             let dz = player.position.z - bot.position.z
@@ -787,15 +784,13 @@ final class GameSceneController: NSObject, ObservableObject {
                     lavaLizards: track.lavaLizards,
                     crabs: track.crabs,
                     seaTurtles: track.seaTurtles,
-                    trackHalfWidth: halfWidth,
-                    shieldAbsorb: { power?.absorbHit() ?? false }
+                    trackHalfWidth: halfWidth
                 )
             }
             racer.updatePowerUpVFX(
                 deltaTime: deltaTime,
                 isSpeedBoost: power?.isSpeedBoostActive == true,
                 isGhost: isGhost,
-                hasShield: power?.hasShieldArmed == true,
                 isMagnet: power?.isMagnetActive == true
             )
         }
@@ -810,12 +805,14 @@ final class GameSceneController: NSObject, ObservableObject {
                 y: player.position.y,
                 z: player.position.z,
                 ballRadius: player.radius,
-                extraReach: magnetReach
+                magnetReach: magnetReach,
+                deltaTime: deltaTime
             )
             if gained > 0 {
                 runCoins += gained
                 CoinStore.add(gained)
                 totalCoins = CoinStore.total
+                CoinSFX.shared.play(count: gained)
             }
         }
 

@@ -8,7 +8,6 @@ final class PowerUpVFX {
     private var ballRadius: Float = 0.55
 
     private var ghostShell: SCNNode?
-    private var shieldShell: SCNNode?
     private var magnetHalo: SCNNode?
     private var speedAura: SCNNode?
 
@@ -51,8 +50,6 @@ final class PowerUpVFX {
             spawnSpeedBurst()
         case .ghost:
             spawnGhostPoof()
-        case .shield:
-            spawnShieldFlash()
         case .coinMagnet:
             spawnMagnetPing()
         }
@@ -83,11 +80,9 @@ final class PowerUpVFX {
         deltaTime: Float,
         isSpeedBoost: Bool,
         isGhost: Bool,
-        hasShield: Bool,
         isMagnet: Bool
     ) {
         syncGhost(isGhost)
-        syncShield(hasShield)
         syncMagnet(isMagnet)
         syncSpeedAura(isSpeedBoost)
 
@@ -145,39 +140,6 @@ final class PowerUpVFX {
         }
     }
 
-    private func syncShield(_ active: Bool) {
-        guard let ballNode else { return }
-        if active {
-            if shieldShell == nil {
-                let shell = makeShell(
-                    scale: 1.35,
-                    color: UIColor(red: 0.25, green: 0.75, blue: 1.0, alpha: 0.4),
-                    name: "shieldShell"
-                )
-                ballNode.addChildNode(shell)
-                shieldShell = shell
-                shell.runAction(
-                    .repeatForever(
-                        .sequence([
-                            .scale(to: 1.08, duration: 0.4),
-                            .scale(to: 1.0, duration: 0.4)
-                        ])
-                    )
-                )
-            }
-            ballNode.geometry?.firstMaterial?.emission.contents = UIColor(
-                red: 0.25, green: 0.7, blue: 1.0, alpha: 0.65
-            )
-        } else if shieldShell != nil {
-            shieldShell?.removeAllActions()
-            shieldShell?.removeFromParentNode()
-            shieldShell = nil
-            if ghostShell == nil {
-                restoreBallMaterial()
-            }
-        }
-    }
-
     private func syncMagnet(_ active: Bool) {
         guard let ballNode else { return }
         if active {
@@ -225,7 +187,7 @@ final class PowerUpVFX {
             speedAura?.removeAllActions()
             speedAura?.removeFromParentNode()
             speedAura = nil
-            if ghostShell == nil && shieldShell == nil {
+            if ghostShell == nil {
                 restoreBallMaterial()
             }
         }
@@ -342,25 +304,6 @@ final class PowerUpVFX {
                 .group([
                     .scale(to: 2.0, duration: 0.32),
                     .fadeOut(duration: 0.32)
-                ]),
-                .removeFromParentNode()
-            ])
-        )
-    }
-
-    private func spawnShieldFlash() {
-        guard let ballNode else { return }
-        let flash = makeShell(
-            scale: 1.3,
-            color: UIColor(red: 0.3, green: 0.8, blue: 1.0, alpha: 0.7),
-            name: "shieldFlash"
-        )
-        ballNode.addChildNode(flash)
-        flash.runAction(
-            .sequence([
-                .group([
-                    .scale(to: 1.9, duration: 0.25),
-                    .fadeOut(duration: 0.25)
                 ]),
                 .removeFromParentNode()
             ])
@@ -495,9 +438,6 @@ final class PowerUpVFX {
         ghostShell?.removeAllActions()
         ghostShell?.removeFromParentNode()
         ghostShell = nil
-        shieldShell?.removeAllActions()
-        shieldShell?.removeFromParentNode()
-        shieldShell = nil
         magnetHalo?.removeAllActions()
         magnetHalo?.removeFromParentNode()
         magnetHalo = nil

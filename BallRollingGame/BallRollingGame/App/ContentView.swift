@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var game = GameSceneController()
+    @State private var sfxVolumePercent: Double = Double(SoundSettings.masterVolume * 100)
 
     private var showsGameWorld: Bool {
         switch game.state {
@@ -66,6 +67,9 @@ struct ContentView: View {
                         .padding(.bottom, 36)
                 case .powerUpShop:
                     powerUpShop
+                        .padding(.bottom, 36)
+                case .settings:
+                    settingsPanel
                         .padding(.bottom, 36)
                 case .dead:
                     finishCard(won: false)
@@ -147,6 +151,11 @@ struct ContentView: View {
 
                     menuButton(title: "Power-ups", color: Color(red: 0.14, green: 0.58, blue: 0.44)) {
                         game.openPowerUpShop()
+                    }
+
+                    menuButton(title: "Settings", color: Color(white: 0.28)) {
+                        sfxVolumePercent = Double(SoundSettings.masterVolume * 100)
+                        game.openSettings()
                     }
                 }
                 .padding(.bottom, isWide ? 56 : 48)
@@ -274,6 +283,59 @@ struct ContentView: View {
                 }
             }
             .frame(maxHeight: 440)
+        }
+        .padding(20)
+        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 22)
+    }
+
+    private var settingsPanel: some View {
+        VStack(spacing: 18) {
+            HStack(alignment: .center, spacing: 12) {
+                Text("Settings")
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 8)
+
+                Button("Back") {
+                    game.returnToMenu()
+                }
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.18), in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Sound Effects")
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text("\(Int(sfxVolumePercent.rounded()))%")
+                        .font(.system(size: 17, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.orange)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $sfxVolumePercent, in: 0...100, step: 1) { editing in
+                    if !editing {
+                        CoinSFX.shared.play(count: 1)
+                    }
+                }
+                .tint(.orange)
+                .onChange(of: sfxVolumePercent) { _, newValue in
+                    SoundSettings.masterVolume = Float(newValue / 100)
+                }
+
+                Text("Applies to coin pickups, the biome roulette, and other effects.")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(16)
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .padding(20)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -451,7 +513,6 @@ struct ContentView: View {
         case .speedBoost: return Color(red: 0.98, green: 0.55, blue: 0.18)
         case .coinMagnet: return Color(red: 0.95, green: 0.78, blue: 0.18)
         case .ghost: return Color(red: 0.70, green: 0.80, blue: 0.95)
-        case .shield: return Color(red: 0.30, green: 0.72, blue: 0.95)
         case .slowPulse: return Color(red: 0.72, green: 0.42, blue: 0.95)
         }
     }
@@ -461,7 +522,6 @@ struct ContentView: View {
         case .speedBoost: return "bolt.fill"
         case .coinMagnet: return "dollarsign.circle.fill"
         case .ghost: return "eye.slash.fill"
-        case .shield: return "shield.fill"
         case .slowPulse: return "tortoise.fill"
         }
     }

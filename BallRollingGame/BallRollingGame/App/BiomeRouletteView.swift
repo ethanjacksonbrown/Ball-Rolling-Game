@@ -59,28 +59,36 @@ struct BiomeRouletteView: View {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Color.black.opacity(0.35))
 
+                // Cards + orange frame share one GeometryReader so centers always match.
                 GeometryReader { geo in
-                    let centerX = geo.size.width * 0.5
-                    HStack(spacing: spacing) {
+                    let midX = geo.size.width * 0.5
+                    let midY = geo.size.height * 0.5
+
+                    ZStack {
                         ForEach(reel) { card in
                             biomeCard(card, emphasized: phase != .spinning && card.id == winnerIndex)
                                 .frame(width: cardWidth, height: cardHeight)
+                                // Card centers sit on midX when offsetX == -index * cellWidth.
+                                .position(
+                                    x: midX + offsetX + CGFloat(card.id) * cellWidth,
+                                    y: midY
+                                )
                         }
+
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(
+                                Color.orange.opacity(phase == .landed ? 1 : 0.9),
+                                lineWidth: phase == .landed ? 4 : 3
+                            )
+                            .frame(width: cardWidth + 8, height: cardHeight + 8)
+                            .scaleEffect(highlightPulse ? 1.04 : 1.0)
+                            .shadow(color: .orange.opacity(phase == .landed ? 0.55 : 0.25), radius: 10, y: 0)
+                            .position(x: midX, y: midY)
+                            .allowsHitTesting(false)
                     }
-                    .offset(x: offsetX + centerX - cardWidth * 0.5)
                 }
                 .frame(height: cardHeight + 28)
                 .clipped()
-
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(
-                        Color.orange.opacity(phase == .landed ? 1 : 0.9),
-                        lineWidth: phase == .landed ? 4 : 3
-                    )
-                    .frame(width: cardWidth + 10, height: cardHeight + 10)
-                    .scaleEffect(highlightPulse ? 1.04 : 1.0)
-                    .shadow(color: .orange.opacity(phase == .landed ? 0.55 : 0.25), radius: 10, y: 0)
-                    .allowsHitTesting(false)
 
                 HStack(spacing: 0) {
                     LinearGradient(
@@ -152,8 +160,7 @@ struct BiomeRouletteView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(.white.opacity(emphasized ? 0.55 : 0.18), lineWidth: emphasized ? 2 : 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
-        .scaleEffect(emphasized ? 1.03 : 1.0)
+        .shadow(color: .black.opacity(emphasized ? 0.4 : 0.3), radius: emphasized ? 8 : 6, y: 3)
     }
 
     private func beginSpin() {
@@ -190,6 +197,12 @@ struct BiomeRouletteView: View {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + spinDuration + 0.05) {
+            // Hard-snap in case the timing curve left a sub-pixel miss.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                offsetX = target
+            }
             phase = .landed
             withAnimation(.easeInOut(duration: 0.22).repeatCount(3, autoreverses: true)) {
                 highlightPulse = true

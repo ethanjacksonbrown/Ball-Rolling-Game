@@ -5,6 +5,7 @@ enum GameState: Equatable {
     case biomeRoulette
     case skinShop
     case powerUpShop
+    case settings
     case playing
     case paused
     case dead

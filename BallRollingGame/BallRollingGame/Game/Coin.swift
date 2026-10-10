@@ -25,17 +25,34 @@ enum CoinStore {
     }
 }
 
-struct CoinPickup {
+final class CoinPickup {
     let node: SCNNode
-    let x: Float
-    let z: Float
-    let y: Float
+    var x: Float
+    var z: Float
+    var y: Float
     let radius: Float
     let chunkEndZ: Float
+    /// True once Coin Magnet locks onto this coin (keeps chasing until collected).
+    var isAttracting = false
+    var attractElapsed: Float = 0
+
+    init(node: SCNNode, x: Float, z: Float, y: Float, radius: Float, chunkEndZ: Float) {
+        self.node = node
+        self.x = x
+        self.z = z
+        self.y = y
+        self.radius = radius
+        self.chunkEndZ = chunkEndZ
+    }
 }
 
 final class CoinIndex {
     private var coins: [CoinPickup] = []
+
+    /// Exponential chase rate (1/sec). Higher = snaps to the ball faster even at high speed.
+    private let magnetCatchRate: Float = 14
+    /// After this long locked on, guarantee the collect so coins never trail off-screen.
+    private let magnetGuaranteeCollect: Float = 0.28
 
     func reset() {
         coins.forEach { $0.node.removeFromParentNode() }
@@ -44,6 +61,8 @@ final class CoinIndex {
 
     func cull(beforeZ z: Float) {
         coins.removeAll { coin in
+            // Don't cull coins the magnet already locked — they must finish collecting.
+            if coin.isAttracting { return false }
             if coin.chunkEndZ < z {
                 coin.node.removeFromParentNode()
                 return true
@@ -73,20 +92,60 @@ final class CoinIndex {
         )
     }
 
-    /// Collect overlapping coins. Returns how many were picked up.
-    /// `extraReach` extends horizontal pickup distance (Coin Magnet).
+    /// Pulls coins in range when magnet is active; locked coins keep chasing until they hit.
     @discardableResult
-    func collect(atX x: Float, y: Float, z: Float, ballRadius: Float, extraReach: Float = 0) -> Int {
+    func collect(
+        atX x: Float,
+        y: Float,
+        z: Float,
+        ballRadius: Float,
+        magnetReach: Float = 0,
+        deltaTime: Float = 1.0 / 60.0
+    ) -> Int {
         var collected = 0
+        let contactReach = ballRadius + 0.55
+        let contactReachSq = contactReach * contactReach
+        let magnetReachSq = magnetReach > 0 ? magnetReach * magnetReach : Float(0)
+        let dt = max(0, min(deltaTime, 0.05))
+
         coins.removeAll { coin in
+            let dx0 = x - coin.x
+            let dy0 = y - coin.y
+            let dz0 = z - coin.z
+            let horizSq0 = dx0 * dx0 + dz0 * dz0
+
+            let inMagnetRange = magnetReach > 0 && horizSq0 <= magnetReachSq && abs(dy0) < 3.2
+            if inMagnetRange || coin.isAttracting {
+                if !coin.isAttracting {
+                    coin.isAttracting = true
+                    coin.attractElapsed = 0
+                    coin.node.removeAllActions()
+                }
+                coin.attractElapsed += dt
+
+                // Track the *current* ball position each frame so fast movement can't outrun coins.
+                let blend = 1 - exp(-magnetCatchRate * dt)
+                coin.x += (x - coin.x) * blend
+                coin.y += (y - coin.y) * blend
+                coin.z += (z - coin.z) * blend
+                coin.node.position = SCNVector3(coin.x, coin.y, coin.z)
+
+                // Guaranteed pickup after a short chase — never leave coins stranded behind.
+                if coin.attractElapsed >= magnetGuaranteeCollect {
+                    coin.node.removeFromParentNode()
+                    collected += 1
+                    return true
+                }
+            }
+
             let dx = x - coin.x
+            let dy = y - coin.y
             let dz = z - coin.z
-            let reach = coin.radius + ballRadius + max(0, extraReach)
-            guard dx * dx + dz * dz <= reach * reach else { return false }
-            let ballBottom = y - ballRadius
-            let ballTop = y + ballRadius
-            let verticalSlack: Float = extraReach > 0.5 ? 2.5 : 0.4
-            guard ballBottom < coin.y + 0.7 && ballTop > coin.y - verticalSlack else { return false }
+            let magnetContact = coin.isAttracting
+            let reachSq = magnetContact ? (contactReach * 1.35) * (contactReach * 1.35) : contactReachSq
+            guard dx * dx + dz * dz <= reachSq else { return false }
+            let verticalSlack: Float = magnetContact ? 1.35 : 0.45
+            guard abs(dy) <= ballRadius + verticalSlack else { return false }
             coin.node.removeFromParentNode()
             collected += 1
             return true

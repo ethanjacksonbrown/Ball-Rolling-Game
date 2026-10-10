@@ -4,7 +4,6 @@ enum PowerUpType: String, CaseIterable, Identifiable, Equatable {
     case speedBoost
     case coinMagnet
     case ghost
-    case shield
     case slowPulse
 
     var id: String { rawValue }
@@ -14,7 +13,6 @@ enum PowerUpType: String, CaseIterable, Identifiable, Equatable {
         case .speedBoost: return "Speed Boost"
         case .coinMagnet: return "Coin Magnet"
         case .ghost: return "Ghost"
-        case .shield: return "Shield"
         case .slowPulse: return "Slow Pulse"
         }
     }
@@ -24,14 +22,13 @@ enum PowerUpType: String, CaseIterable, Identifiable, Equatable {
         case .speedBoost: return "Burst of forward speed"
         case .coinMagnet: return "Pull coins from farther away"
         case .ghost: return "Pass through obstacles briefly"
-        case .shield: return "Absorb the next solid hit"
         case .slowPulse: return "Slow nearby rivals briefly"
         }
     }
 
     /// Types bots may be assigned (no Coin Magnet).
     static var botAssignable: [PowerUpType] {
-        [.speedBoost, .ghost, .shield, .slowPulse]
+        [.speedBoost, .ghost, .slowPulse]
     }
 
     /// Unlock cost for level 1.
@@ -40,7 +37,6 @@ enum PowerUpType: String, CaseIterable, Identifiable, Equatable {
         case .speedBoost: return 40
         case .coinMagnet: return 55
         case .ghost: return 70
-        case .shield: return 60
         case .slowPulse: return 80
         }
     }
@@ -76,7 +72,6 @@ struct PowerUpStats: Equatable {
         case .speedBoost: return max(8, 12 - tier * 0.5)
         case .coinMagnet: return max(10, 14 - tier * 0.5)
         case .ghost: return max(11, 16 - tier * 0.6)
-        case .shield: return max(10, 14 - tier * 0.5)
         case .slowPulse: return max(11, 16 - tier * 0.6)
         }
     }
@@ -86,7 +81,6 @@ struct PowerUpStats: Equatable {
         case .speedBoost: return 2.5 + tier * 0.3
         case .coinMagnet: return 4.0 + tier * 0.4
         case .ghost: return 2.5 + tier * 0.35
-        case .shield: return 6.0 + tier * 0.8
         case .slowPulse: return 2.5 + tier * 0.35
         }
     }
@@ -99,11 +93,6 @@ struct PowerUpStats: Equatable {
     var magnetReach: Float {
         guard type == .coinMagnet else { return 0 }
         return 8 + tier * 1.5
-    }
-
-    var shieldCharges: Int {
-        guard type == .shield else { return 0 }
-        return level >= 5 ? 2 : 1
     }
 
     var slowMultiplier: Float {
@@ -133,6 +122,11 @@ enum PowerUpStore {
     static var equipped: PowerUpType? {
         get {
             guard let raw = UserDefaults.standard.string(forKey: equippedKey) else { return nil }
+            // Shield was removed — clear any leftover save so the shop stays consistent.
+            if raw == "shield" {
+                UserDefaults.standard.removeObject(forKey: equippedKey)
+                return nil
+            }
             return PowerUpType(rawValue: raw)
         }
         set {

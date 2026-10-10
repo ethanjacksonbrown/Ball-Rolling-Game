@@ -73,7 +73,7 @@ final class RouletteSFX {
         guard !pool.isEmpty else { return }
         let player = pool[poolIndex]
         poolIndex = (poolIndex + 1) % pool.count
-        player.volume = volume
+        player.volume = SoundSettings.scaled(volume)
         player.currentTime = 0
         player.play()
     }

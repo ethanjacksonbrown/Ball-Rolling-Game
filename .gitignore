@@ -29,3 +29,6 @@ Pods/
 .env
 *.pem
 Credentials.plist
+
+# Cursor local tooling
+.cursor/

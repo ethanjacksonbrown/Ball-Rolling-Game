@@ -16,7 +16,7 @@ enum BiomeMapPreview {
         case .snow:
             return ["BiomeSnow1"]
         case .forest:
-            return []
+            return ["BiomeForest1"]
         }
     }
 

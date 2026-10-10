@@ -12,24 +12,19 @@ final class PowerUpRuntime {
     private(set) var level: Int = 0
     private(set) var cooldownRemaining: Float = 0
     private(set) var effectRemaining: Float = 0
-    private(set) var shieldCharges: Int = 0
 
     /// Slow Pulse sources applied to this racer: (remaining, multiplier).
     private var incomingSlows: [(remaining: Float, multiplier: Float)] = []
 
     var hasPowerUp: Bool { type != nil && level >= 1 }
 
-    /// Ready to fire: owned, cooled down, and not mid-effect / armed shield.
+    /// Ready to fire: owned, cooled down, and not mid-effect.
     var isReady: Bool {
-        guard hasPowerUp, cooldownRemaining <= 0 else { return false }
-        if type == .shield {
-            return shieldCharges <= 0 && effectRemaining <= 0
-        }
-        return effectRemaining <= 0
+        hasPowerUp && cooldownRemaining <= 0 && effectRemaining <= 0
     }
 
     var isEffectActive: Bool {
-        effectRemaining > 0 || shieldCharges > 0
+        effectRemaining > 0
     }
 
     var isGhost: Bool {
@@ -42,10 +37,6 @@ final class PowerUpRuntime {
 
     var isSpeedBoostActive: Bool {
         type == .speedBoost && effectRemaining > 0
-    }
-
-    var hasShieldArmed: Bool {
-        type == .shield && shieldCharges > 0
     }
 
     var stats: PowerUpStats? {
@@ -62,23 +53,14 @@ final class PowerUpRuntime {
     func reset() {
         cooldownRemaining = 0
         effectRemaining = 0
-        shieldCharges = 0
         incomingSlows.removeAll()
     }
 
     @discardableResult
     func tryActivate() -> PowerUpActivation? {
         guard isReady, let type, let stats else { return nil }
-
-        switch type {
-        case .speedBoost, .coinMagnet, .ghost, .slowPulse:
-            effectRemaining = stats.duration
-            cooldownRemaining = stats.cooldown
-        case .shield:
-            shieldCharges = stats.shieldCharges
-            effectRemaining = stats.duration
-            cooldownRemaining = stats.cooldown
-        }
+        effectRemaining = stats.duration
+        cooldownRemaining = stats.cooldown
         return PowerUpActivation(type: type, stats: stats)
     }
 
@@ -89,9 +71,6 @@ final class PowerUpRuntime {
         }
         if effectRemaining > 0 {
             effectRemaining = max(0, effectRemaining - deltaTime)
-            if effectRemaining <= 0, type == .shield {
-                shieldCharges = 0
-            }
         }
         // Hold Slow Pulse time while airborne — duration spends on the ground.
         guard !isAirborne else { return }
@@ -121,16 +100,6 @@ final class PowerUpRuntime {
     func magnetReach() -> Float {
         guard isMagnetActive, let stats else { return 0 }
         return stats.magnetReach
-    }
-
-    /// Consume one shield charge if armed. Returns true if the hit was absorbed.
-    func absorbHit() -> Bool {
-        guard shieldCharges > 0 else { return false }
-        shieldCharges -= 1
-        if shieldCharges <= 0 {
-            effectRemaining = 0
-        }
-        return true
     }
 
     func applyIncomingSlow(multiplier: Float, duration: Float) {
